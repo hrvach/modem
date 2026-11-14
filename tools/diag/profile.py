@@ -1,0 +1,12 @@
+import sys; sys.path.insert(0,'.')
+from machine import *
+m=Machine(nvram_mode=None); m.logging=False; m.run(900_000_000); m.dte_text()
+def cmd(c,t=200_000_000): m.send(c); m.run(t); return m.dte_text()
+cmd("AT\r"); cmd("ATQ0V1\r")
+before=cmd("ATI4\r")
+print("=== ATI5 (NVRAM profile)"); print(cmd("ATI5\r").decode(errors='replace')[:700])
+print("=== after AT&F1:", cmd("AT&F1\r"))
+cmd("ATQ0V1\r")
+after=cmd("ATI4\r")
+print("=== ATI4 BEFORE &F1"); print(before.decode(errors='replace'))
+print("=== ATI4 AFTER  &F1"); print(after.decode(errors='replace'))
