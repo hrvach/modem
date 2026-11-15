@@ -33,6 +33,8 @@ _lib.c5x_total_cycles.argtypes = [C.c_void_p]; _lib.c5x_total_cycles.restype = C
 _lib.c5x_dxr_head.restype = C.c_uint32; _lib.c5x_dxr_head.argtypes = [C.c_void_p]
 _lib.c5x_dxr_ring.restype = C.POINTER(C.c_uint16); _lib.c5x_dxr_ring.argtypes = [C.c_void_p]
 _lib.c5x_set_trace.argtypes = [C.c_void_p, C.c_int32]
+_lib.c5x_set_watch.argtypes = [C.c_void_p, C.c_int32]; _lib.c5x_watch_hits.restype = C.c_uint32; _lib.c5x_watch_hits.argtypes = [C.c_void_p, C.c_uint32]
+_lib.c5x_pc_hits.restype = C.c_uint32; _lib.c5x_pc_hits.argtypes = [C.c_void_p, C.c_uint32]; _lib.c5x_pc_hits_clear.argtypes = [C.c_void_p]
 _lib.c5x_trace_n.restype = C.c_uint32; _lib.c5x_trace_n.argtypes = [C.c_void_p]
 _lib.c5x_trace_get.argtypes = [C.c_void_p, C.c_uint32, C.POINTER(C.c_uint32), C.POINTER(C.c_uint16), C.POINTER(C.c_uint16)]
 _lib.c5x_stop.argtypes = [C.c_void_p]
@@ -76,6 +78,10 @@ class DSP:
     def set_cycle_model(self, m): _lib.c5x_set_cycle_model(self.h, int(m))
     def dxr_head(self): return _lib.c5x_dxr_head(self.h)
     def dxr_ring(self): return _lib.c5x_dxr_ring(self.h)
+    def set_watch(self, a): _lib.c5x_set_watch(self.h, a)
+    def watch_hits(self, pc): return _lib.c5x_watch_hits(self.h, pc)
+    def pc_hits(self, pc): return _lib.c5x_pc_hits(self.h, pc)
+    def pc_hits_clear(self): _lib.c5x_pc_hits_clear(self.h)
     def set_trace(self, pc): _lib.c5x_set_trace(self.h, pc)
     def trace(self):
         out = []

@@ -42,8 +42,8 @@ typedef struct {
     uint16_t cur_pc;
     uint16_t pcring[256]; uint32_t pcring_i;
     int in_delay;
-    int cmpr_ar0;            /* experiment: CMPR compares with AR0 instead of ARCR */
-    int32_t trace_pc; uint32_t trace_n; struct { uint32_t acc; uint16_t ret, ret2; uint64_t cyc; } trace_buf[8192];
+    uint16_t ar0_prev; int ar0_dirty, int_inh; int cmpr_ar0;            /* experiment: CMPR compares with AR0 instead of ARCR */
+    uint32_t pc_hits[65536]; uint32_t watch_hits[65536]; int32_t watch_a; int32_t trace_pc; uint32_t trace_n; struct { uint32_t acc; uint16_t ret, ret2; uint64_t cyc; } trace_buf[8192];
     uint16_t *dxr_ring; uint32_t dxr_head;   /* every DXR write is appended here (ring of 65536) */
     uint16_t ivec_ind[16];   /* if nonzero: interrupt n jumps to dmem[ivec_ind[n]] instead of the vector */
 } C5x;
@@ -56,7 +56,7 @@ C5x *c5x_new(void) {
     c->pmem = calloc(65536, 2); c->dmem = calloc(65536, 2); c->iomem = calloc(65536, 2);
     c->hits = calloc(65536, 4); c->bp = calloc(65536, 1);
     c->iolog = calloc(IOLOG_N, sizeof(IoEv)); c->dxr_ring = calloc(65536, 2);
-    c->rptc = -1; c->trace_pc = -1;
+    c->rptc = 0; c->trace_pc = -1; c->watch_a = -1;
     return c;
 }
 uint16_t *c5x_pmem(C5x *c) { return c->pmem; }
@@ -80,8 +80,8 @@ void c5x_reset(C5x *c, uint16_t pc) {
     c->intm = 1; c->ov = 0; c->ovm = 0; c->arp = 0; c->arb = 0; c->dp = 0;
     c->c = 1; c->cnf = 0; c->hm = 1; c->pm = 0; c->sxm = 1; c->xf = 1; c->tc = 0;
     c->iptr = 0; c->avis = 0; c->ovly = 0; c->ram = 0; c->mpmc = 0; c->ndx = 0; c->trm = 0; c->braf = 0;
-    c->ifr = 0; c->imr = 0; c->cbcr = 0; c->rptc = -1; c->idle = 0; c->sp = 0;
-    c->pc = pc; c->xrdy = 1; c->rrdy = 0; c->cycles = 0; c->tss = 0; c->psc = 0; c->tim = (c->legacy & 8) ? 0 : 0xFFFF; c->prd = 0xFFFF; c->tcr_tddr = 0;
+    c->ifr = 0; c->imr = 0; c->cbcr = 0; c->rptc = 0; c->idle = 0; c->sp = 0;
+    c->pc = pc; c->xrdy = 1; c->rrdy = 0; c->cycles = 0; c->tss = 0; c->psc = 0; c->tim = 0xFFFF; c->prd = 0xFFFF; c->tcr_tddr = 0;
     memset(c->stack, 0, sizeof c->stack);
 }
 
@@ -107,7 +107,7 @@ uint32_t c5x_get(C5x *c, int id) {
     return 0;
 }
 void c5x_set(C5x *c, int id, uint32_t v) {
-    if (id >= S_AR0 && id < S_AR0 + 8) { c->ar[id - S_AR0] = v; return; }
+    if (id >= S_AR0 && id < S_AR0 + 8) { c->ar[id - S_AR0] = v; if (id == S_AR0) c->ar0_dirty = 1; return; }
     switch (id) {
     case S_PC: c->pc = v; break; case S_ACC: c->acc = v; break; case S_DRR: c->drr = v; break;
     case S_DXR: c->dxr = v; break; case S_IMR: c->imr = v; break;
@@ -150,7 +150,7 @@ static uint16_t mmr_rd(C5x *c, uint16_t a) {
 }
 static void mmr_wr(C5x *c, uint16_t a, uint16_t d) {
     if (a >= 0x50) { io_write(c, a, d); return; }
-    if (a >= 0x10 && a < 0x18) { c->ar[a - 0x10] = d; return; }
+    if (a >= 0x10 && a < 0x18) { c->ar[a - 0x10] = d; if (a == 0x10) c->ar0_dirty = 1; return; }
     switch (a) {
     case 0x04: c->imr = d; return; case 0x05: c->greg = d; return;
     case 0x06: c->ifr &= ~d; return;
@@ -176,7 +176,8 @@ static void mmr_wr(C5x *c, uint16_t a, uint16_t d) {
 static inline int dm_internal(uint16_t a) { return a < 0x80 || (a >= 0x100 && a < 0x500) || (a >= 0x800 && a < 0xC00); }
 static inline int dm_hostwin(uint16_t a) { return a >= 0xFF50 && a <= 0xFF5F; }   /* external memory-mapped host window */
 static inline uint16_t dm_rd(C5x *c, uint16_t a) { return a < 0x60 ? mmr_rd(c, a) : dm_internal(a) ? c->dmem[a] : dm_hostwin(a) ? io_read(c, a) : c->pmem[a]; }
-static inline void dm_wr(C5x *c, uint16_t a, uint16_t d) { if (a < 0x60) mmr_wr(c, a, d); else if (dm_internal(a)) c->dmem[a] = d; else if (dm_hostwin(a)) io_write(c, a, d); else c->pmem[a] = d; }
+static inline void dm_wr(C5x *c, uint16_t a, uint16_t d) { if ((int32_t)a == c->watch_a) c->watch_hits[c->pc & 0xFFFF]++; if (a < 0x60) mmr_wr(c, a, d); else if (dm_internal(a)) c->dmem[a] = d; else if (dm_hostwin(a)) io_write(c, a, d); else c->pmem[a] = d; }
+static inline void dmov_wr(C5x *c, uint16_t a, uint16_t d) { if ((dm_internal(a) && a >= 0x60)) dm_wr(c, a + 1, d); }   /* data move only within on-chip RAM (DMOV/LTD/MACD/MADD) */
 static inline uint16_t *pm_ptr(C5x *c, uint16_t a) {
     if (c->cnf && a >= 0xFE00) return &c->dmem[a - 0xFE00 + 0x100];
     if (c->ram && a >= 0x2000 && a < 0x2400) return &c->dmem[a - 0x2000 + 0x800];
@@ -212,6 +213,7 @@ static inline void set_t0(C5x *c, uint16_t d) { c->treg0 = d; if (!c->trm) { c->
 static uint16_t bitrev16(uint16_t v) { uint16_t r = 0; for (int i = 0; i < 16; i++) if (v & (1 << i)) r |= 1 << (15 - i); return r; }
 
 static void upd_ar(C5x *c, int ar, int step) {
+    if (ar == 0) c->ar0_dirty = 1;
     int cenb1 = (c->cbcr >> 3) & 1, car1 = c->cbcr & 7, cenb2 = (c->cbcr >> 7) & 1, car2 = (c->cbcr >> 4) & 7;
     if (cenb1 && ar == car1) { if (c->ar[ar] == c->cber1) c->ar[ar] = c->cbsr1; else c->ar[ar] += step; }
     else if (cenb2 && ar == car2) { if (c->ar[ar] == c->cber2) c->ar[ar] = c->cbsr2; else c->ar[ar] += step; }
@@ -228,10 +230,10 @@ static uint16_t ea(C5x *c) {
     case 0x0: break;
     case 0x2: upd_ar(c, arp, -1); break;
     case 0x4: upd_ar(c, arp, 1); break;
-    case 0x8: c->ar[arp] = bitrev16(bitrev16(a) - bitrev16(c->indx)); break;
+    case 0x8: c->ar[arp] = bitrev16(bitrev16(a) - bitrev16(c->indx)); if (arp == 0) c->ar0_dirty = 1; break;
     case 0xA: upd_ar(c, arp, -(int16_t)c->indx); break;
     case 0xC: upd_ar(c, arp, (int16_t)c->indx); break;
-    case 0xE: c->ar[arp] = bitrev16(bitrev16(a) + bitrev16(c->indx)); break;
+    case 0xE: c->ar[arp] = bitrev16(bitrev16(a) + bitrev16(c->indx)); if (arp == 0) c->ar0_dirty = 1; break;
     default: c->status = RUN_BADOP; break;
     }
     if (m & 1) upd_arp(c, nar);
@@ -275,16 +277,19 @@ static void save_ctx(C5x *c) {
 static void restore_ctx(C5x *c) {
     c->acc = c->sh.acc; c->accb = c->sh.accb; c->preg = c->sh.preg; c->treg0 = c->sh.treg0; c->treg1 = c->sh.treg1; c->treg2 = c->sh.treg2;
     c->arcr = c->sh.arcr; c->indx = c->sh.indx; c->arp = c->sh.arp; c->arb = c->sh.arb; c->dp = c->sh.dp; c->ov = c->sh.ov; c->ovm = c->sh.ovm;
-    if (c->legacy & 32) { c->intm = c->sh.intm; c->xf = c->sh.xf; } c->cnf = c->sh.cnf; c->tc = c->sh.tc; c->sxm = c->sh.sxm; c->c = c->sh.c; c->hm = c->sh.hm; c->pm = c->sh.pm;   /* audit #9: INTM/XF are not shadowed */
+    c->cnf = c->sh.cnf; c->tc = c->sh.tc; c->sxm = c->sh.sxm; c->c = c->sh.c; c->hm = c->sh.hm; c->pm = c->sh.pm;   /* audit #9: INTM/XF are not shadowed */
     c->iptr = c->sh.iptr; c->avis = c->sh.avis; c->ovly = c->sh.ovly; c->ram = c->sh.ram; c->mpmc = c->sh.mpmc; c->ndx = c->sh.ndx; c->trm = c->sh.trm; c->braf = c->sh.braf;
 }
 static const uint8_t ivec[16] = { 0x02, 0x04, 0x06, 0x08, 0x0A, 0x0C, 0x0E, 0x10, 0x12, 0, 0, 0, 0, 0, 0, 0 };   /* audited: INT1..INT3, TINT, RINT, XINT, TRNT, TXNT, INT4 */
 static const uint8_t ivec_legacy[16] = { 0x02, 0x04, 0x06, 0x18, 0x1A, 0x1C, 0x1E, 0x20, 0x22, 0, 0, 0, 0, 0, 0, 0 };   /* old (wrong) table, still used so the firmware's `intr 17` (0x22) reaches the INT4 slot via the ROM-stub model */
+static void tick_timer(C5x *c);
 static void check_int(C5x *c) {
     uint16_t pend = c->ifr & c->imr;
     if (c->intm || !pend) return;
     for (int i = 0; i < 9; i++) if (pend & (1 << i)) {
-        c->intm = 1; push(c, c->pc); c->pc = c->ivec_ind[i] ? dm_rd(c, c->ivec_ind[i]) : (c->iptr << 11) | ivec[i]; c->ifr &= ~(1 << i); c->idle = 0; save_ctx(c); return;
+        c->intm = 1; push(c, c->pc); c->pc = c->ivec_ind[i] ? dm_rd(c, c->ivec_ind[i]) : (c->iptr << 11) | ivec[i]; c->ifr &= ~(1 << i); c->idle = 0; save_ctx(c);
+        if (c->cyc_model && !(c->legacy & 2)) for (int k = 0; k < 4; k++) { c->cycles++; tick_timer(c); }      /* interrupt entry: 4 cycles (pipeline flush, 7.2.2 / App. B class X) */
+        return;
     }
 }
 
@@ -299,21 +304,24 @@ static void exec_bf(C5x *c);
 static void exec1(C5x *c) {
     uint16_t op; uint16_t a, d, imm; int n;
     c->cur_pc = c->pc; c->hits[c->pc]++; c->pcring[c->pcring_i++ & 255] = c->pc;
+    c->pc_hits[c->pc & 0xFFFF]++;
     if ((int32_t)c->pc == c->trace_pc && c->trace_n < 8192) { c->trace_buf[c->trace_n].acc = c->acc; c->trace_buf[c->trace_n].ret = c->stack[c->sp]; c->trace_buf[c->trace_n].ret2 = c->stack[(c->sp + 1) & 7]; c->trace_buf[c->trace_n].cyc = c->cycles; c->trace_n++; }
     op = c->op = fetch(c);
     c->cycles++;
     switch (op >> 8) {
     case 0x00: case 0x01: case 0x02: case 0x03: case 0x04: case 0x05: case 0x06: case 0x07:
-        a = ea(c); c->ar[(op >> 8) & 7] = dm_rd(c, a); break;                       /* LAR dma */
+        a = ea(c); c->ar[(op >> 8) & 7] = dm_rd(c, a); if (((op >> 8) & 7) == 0) c->ar0_dirty = 1; break;                       /* LAR dma */
     case 0x08: a = ea(c) & 0x7f; c->acc = dm_rd(c, a); break;                       /* LAMM */
     case 0x09: { uint16_t pfc = fetch(c);                                            /* SMMR */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, pfc, dm_rd(c, a & 0x7f)); pfc++; c->rptc--; c->cycles++; } break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, pfc, dm_rd(c, a & 0x7f)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }
     case 0x0A: a = ea(c); d = dm_rd(c, a);                                           /* SUBC */
-        { int32_t t = (int32_t)c->acc - ((int32_t)d << 15); c->acc = t >= 0 ? ((uint32_t)t << 1) + 1 : c->acc << 1; } break;
+        { uint32_t b = (uint32_t)d << 15, A = c->acc; uint64_t r = (uint64_t)A - b; uint32_t res = (uint32_t)r;   /* audit #24: SUBC affects C and OV (no saturation) */
+               c->c = !((r >> 32) & 1); if ((A ^ b) & (A ^ res) & 0x80000000u) c->ov = 1;
+               c->acc = (int32_t)res >= 0 ? (res << 1) + 1 : A << 1; } break;
     case 0x0B: a = ea(c); c->rptc = dm_rd(c, a); c->rpt_start = c->rpt_end = c->pc; break;  /* RPT dma */
     case 0x0C: { uint16_t port = fetch(c); a = ea(c); io_write(c, port, dm_rd(c, a)); break; }  /* OUT */
     case 0x0D: a = ea(c); c->dp = (dm_rd(c, a) & 0x1ff) << 7; break;                 /* LDP dma */
-    case 0x0E: a = ea(c); d = dm_rd(c, a); c->arp = d >> 13; c->ov = (d >> 12) & 1; c->ovm = (d >> 11) & 1; c->dp = (d & 0x1ff) << 7; break; /* LST #0 */
+    case 0x0E: { int arb0 = c->arb; a = ea(c); c->arb = arb0; } d = dm_rd(c, a); c->arp = d >> 13; c->ov = (d >> 12) & 1; c->ovm = (d >> 11) & 1; c->dp = (d & 0x1ff) << 7; break; /* LST #0 */
     case 0x0F: a = ea(c); d = dm_rd(c, a); c->arb = d >> 13; c->arp = d >> 13; c->cnf = (d >> 12) & 1; c->tc = (d >> 11) & 1; c->sxm = (d >> 10) & 1;
         c->c = (d >> 9) & 1; c->hm = (d >> 6) & 1; c->xf = (d >> 4) & 1; c->pm = d & 3; break;                   /* LST #1 */
     case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
@@ -336,7 +344,7 @@ static void exec1(C5x *c) {
     case 0x55: a = ea(c); d = dm_rd(c, a); c->preg = (uint32_t)c->treg0 * (uint32_t)d; break;                  /* MPYU */
     case 0x56: c->status = RUN_BADOP; break;
     case 0x57: { uint16_t pfc = c->bmar;                                             /* BLDP */
-        while (c->rptc > -1) { a = ea(c); pm_wr(c, pfc, dm_rd(c, a)); pfc++; c->rptc--; c->cycles++; } c->bmar = pfc; break; }
+        while (c->rptc > -1) { a = ea(c); pm_wr(c, pfc, dm_rd(c, a)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }   /* audit #15: BMAR is not written back (PFC<-BMAR, then PFC<-MCS) */
     case 0x58: a = ea(c); d = dm_rd(c, a) ^ c->dbmr; c->tc = d == 0; dm_wr(c, a, d); break;     /* XPL dbmr */
     case 0x59: a = ea(c); d = dm_rd(c, a) | c->dbmr; c->tc = d == 0; dm_wr(c, a, d); break;     /* OPL dbmr */
     case 0x5A: a = ea(c); d = dm_rd(c, a) & c->dbmr; c->tc = d == 0; dm_wr(c, a, d); break;     /* APL dbmr */
@@ -363,12 +371,12 @@ static void exec1(C5x *c) {
     case 0x6F: a = ea(c); c->tc = (dm_rd(c, a) >> (~c->treg2 & 0xF)) & 1; break;                 /* BITT */
     case 0x70: a = ea(c); d = dm_rd(c, a); c->acc = do_add(c, c->acc, pscale(c), 0, 0); set_t0(c, d); break;  /* LTA */
     case 0x71: a = ea(c); d = dm_rd(c, a); c->acc = pscale(c); set_t0(c, d); break;               /* LTP */
-    case 0x72: a = ea(c); d = dm_rd(c, a); c->acc = do_add(c, c->acc, pscale(c), 0, 0); set_t0(c, d); dm_wr(c, a + 1, d); break; /* LTD */
+    case 0x72: a = ea(c); d = dm_rd(c, a); c->acc = do_add(c, c->acc, pscale(c), 0, 0); set_t0(c, d); dmov_wr(c, a, d); break; /* LTD */
     case 0x73: a = ea(c); set_t0(c, dm_rd(c, a)); break;                                          /* LT */
     case 0x74: a = ea(c); d = dm_rd(c, a); c->acc = do_sub(c, c->acc, pscale(c), 0, 0); set_t0(c, d); break;  /* LTS */
     case 0x75: a = ea(c); c->preg = (c->preg & 0xFFFF) | ((uint32_t)dm_rd(c, a) << 16); break;   /* LPH */
     case 0x76: a = ea(c); push(c, dm_rd(c, a)); break;                                            /* PSHD */
-    case 0x77: a = ea(c); dm_wr(c, a + 1, dm_rd(c, a)); break;                                    /* DMOV */
+    case 0x77: a = ea(c); if ((dm_internal(a) && a >= 0x60)) dm_wr(c, a + 1, dm_rd(c, a)); break;   /* audit #16: DMOV only within on-chip RAM */                                    /* DMOV */
     case 0x78: upd_ar(c, c->arp, op & 0xff); break;                                               /* ADRK */
     case 0x79: imm = fetch(c); ea(c); c->pc = imm; break;                                         /* B */
     case 0x7A: imm = fetch(c); ea(c); push(c, c->pc); c->pc = imm; break;                         /* CALL */
@@ -381,7 +389,7 @@ static void exec1(C5x *c) {
         d = c->ar[(op >> 8) & 7]; a = ea(c); dm_wr(c, a, d); break;                               /* SAR */
     case 0x88: a = ea(c) & 0x7f; dm_wr(c, a, (uint16_t)c->acc); break;                            /* SAMM */
     case 0x89: { uint16_t pfc = fetch(c);                                                         /* LMMR */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, a & 0x7f, dm_rd(c, pfc)); pfc++; c->rptc--; c->cycles++; } break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, a & 0x7f, dm_rd(c, pfc)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }
     case 0x8A: a = ea(c); dm_wr(c, a, pop(c)); break;                                             /* POPD */
     case 0x8B: if (op & 0x80) ea(c); break;                                                       /* MAR */
     case 0x8C: a = ea(c); dm_wr(c, a, (uint16_t)pscale(c)); break;                                /* SPL */
@@ -392,39 +400,39 @@ static void exec1(C5x *c) {
         a = ea(c); dm_wr(c, a, (uint16_t)(c->acc << ((op >> 8) & 7))); break;                     /* SACL */
     case 0x98: case 0x99: case 0x9A: case 0x9B: case 0x9C: case 0x9D: case 0x9E: case 0x9F:
         a = ea(c); dm_wr(c, a, (uint16_t)((c->acc << ((op >> 8) & 7)) >> 16)); break;             /* SACH */
-    case 0xA0: { int t = ((c->acc >> 31) ^ (c->acc >> 30)) & 1; if (c->acc == 0 && !(c->legacy & 1)) t = 1; ea(c);                            /* NORM */
+    case 0xA0: { int t = ((c->acc >> 31) ^ (c->acc >> 30)) & 1; if (c->acc == 0) t = 1; if (!t) ea(c);   /* audit #23: AR is modified only when the ACC is shifted */                            /* NORM */
         if (t) c->tc = 1; else { c->tc = 0; c->acc <<= 1; } break; }
     case 0xA1: c->status = RUN_BADOP; break;
     case 0xA2: case 0xA3: { uint16_t pfc = fetch(c);                                              /* MAC / MACD */
         do { a = ea(c); d = dm_rd(c, a); c->acc = do_add(c, c->acc, pscale(c), 0, 0); set_t0(c, d);
              c->preg = (int32_t)(int16_t)d * (int32_t)(int16_t)pm_rd(c, pfc); pfc++;
-             if ((op >> 8) == 0xA3) dm_wr(c, a + 1, d);
-             if (c->rptc > -1) { c->rptc--; c->cycles++; } } while (c->rptc > -1); break; }
+             if ((op >> 8) == 0xA3) dmov_wr(c, a, d);
+             if (c->rptc > -1) { if (c->rptc-- > 0) c->cycles++; } } while (c->rptc > -1); break; }
     case 0xA4: { uint16_t pfc = c->bmar;                                                          /* BLPD bmar,dma */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, pm_rd(c, pfc)); pfc++; c->rptc--; c->cycles++; } c->bmar = pfc; break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, pm_rd(c, pfc)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }   /* audit #15: BMAR is not written back (PFC<-BMAR, then PFC<-MCS) */
     case 0xA5: { uint16_t pfc = fetch(c);                                                         /* BLPD #pma,dma */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, pm_rd(c, pfc)); pfc++; c->rptc--; c->cycles++; } break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, pm_rd(c, pfc)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }
     case 0xA6: { uint16_t pfc = (uint16_t)c->acc;                                                 /* TBLR */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, pm_rd(c, pfc)); pfc++; c->rptc--; c->cycles++; } (void)pfc; break; }   /* TBLR/TBLW leave ACC unchanged (PFC is internal) */
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, pm_rd(c, pfc)); pfc++; if (c->rptc-- > 0) c->cycles++; } (void)pfc; break; }   /* TBLR/TBLW leave ACC unchanged (PFC is internal) */
     case 0xA7: { uint16_t pfc = (uint16_t)c->acc;                                                 /* TBLW */
-        while (c->rptc > -1) { a = ea(c); pm_wr(c, pfc, dm_rd(c, a)); pfc++; c->rptc--; c->cycles++; } (void)pfc; break; }   /* TBLR/TBLW leave ACC unchanged (PFC is internal) */
+        while (c->rptc > -1) { a = ea(c); pm_wr(c, pfc, dm_rd(c, a)); pfc++; if (c->rptc-- > 0) c->cycles++; } (void)pfc; break; }   /* TBLR/TBLW leave ACC unchanged (PFC is internal) */
     case 0xA8: { uint16_t pfc = fetch(c);                                                         /* BLDD #lk,dma */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, dm_rd(c, pfc)); pfc++; c->rptc--; c->cycles++; } break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, dm_rd(c, pfc)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }
     case 0xA9: { uint16_t pfc = fetch(c);                                                         /* BLDD dma,#lk */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, pfc, dm_rd(c, a)); pfc++; c->rptc--; c->cycles++; } break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, pfc, dm_rd(c, a)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }
     case 0xAA: case 0xAB: { uint16_t pfc = c->bmar;                                               /* MADS / MADD */
-        do { a = ea(c); d = dm_rd(c, a); c->acc = do_add(c, c->acc, pscale(c), 0, 0); if (c->legacy & 16) set_t0(c, d); else c->treg0 = d;   /* audit N-1: no TRM mirror */
+        do { a = ea(c); d = dm_rd(c, a); c->acc = do_add(c, c->acc, pscale(c), 0, 0); c->treg0 = d;   /* audit N-1: no TRM mirror */
              c->preg = (int32_t)(int16_t)d * (int32_t)(int16_t)pm_rd(c, pfc); pfc++;
-             if ((op >> 8) == 0xAB) dm_wr(c, a + 1, d);
-             if (c->rptc > -1) { c->rptc--; c->cycles++; } } while (c->rptc > -1); c->bmar = pfc; break; }
+             if ((op >> 8) == 0xAB) dmov_wr(c, a, d);
+             if (c->rptc > -1) { if (c->rptc-- > 0) c->cycles++; } } while (c->rptc > -1); break; }   /* audit #15: BMAR is not written back (PFC<-BMAR, then PFC<-MCS) */
     case 0xAC: { uint16_t pfc = c->bmar;                                                          /* BLDD bmar,dma */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, dm_rd(c, pfc)); pfc++; c->rptc--; c->cycles++; } c->bmar = pfc; break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, a, dm_rd(c, pfc)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }   /* audit #15: BMAR is not written back (PFC<-BMAR, then PFC<-MCS) */
     case 0xAD: { uint16_t pfc = c->bmar;                                                          /* BLDD dma,bmar */
-        while (c->rptc > -1) { a = ea(c); dm_wr(c, pfc, dm_rd(c, a)); pfc++; c->rptc--; c->cycles++; } c->bmar = pfc; break; }
+        while (c->rptc > -1) { a = ea(c); dm_wr(c, pfc, dm_rd(c, a)); pfc++; if (c->rptc-- > 0) c->cycles++; } break; }   /* audit #15: BMAR is not written back (PFC<-BMAR, then PFC<-MCS) */
     case 0xAE: a = ea(c); imm = fetch(c); dm_wr(c, a, imm); break;                                /* SPLK */
     case 0xAF: { uint16_t port = fetch(c); a = ea(c); dm_wr(c, a, io_read(c, port)); break; }     /* IN */
     case 0xB0: case 0xB1: case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6: case 0xB7:
-        c->ar[(op >> 8) & 7] = op & 0xff; break;                                                   /* LAR #k8 */
+        c->ar[(op >> 8) & 7] = op & 0xff; if (((op >> 8) & 7) == 0) c->ar0_dirty = 1; break;                                                   /* LAR #k8 */
     case 0xB8: c->acc = do_add(c, c->acc, op & 0xff, 0, 0); break;
     case 0xB9: c->acc = op & 0xff; break;
     case 0xBA: c->acc = do_sub(c, c->acc, op & 0xff, 0, 0); break;
@@ -435,17 +443,17 @@ static void exec1(C5x *c) {
     case 0xE0: case 0xE1: case 0xE2: case 0xE3:                                                   /* BCND */
         imm = fetch(c); if (cond(c)) { c->pc = imm; if (op & 2) c->ov = 0; } break;
     case 0xE4: case 0xE5: case 0xE6: case 0xE7: case 0xF4: case 0xF5: case 0xF6: case 0xF7:       /* XC */
-        if (!cond(c)) { n = ((op >> 12) & 1) + 1; c->pc += n; }   /* XC n counts instruction WORDS (manual: n=2 = one 2-word or two 1-word instructions) */ else if (op & 2) c->ov = 0; break;
+        if (!cond(c)) { n = ((op >> 12) & 1) + 1; c->pc += n; }   /* XC n counts instruction WORDS (manual: n=2 = one 2-word or two 1-word instructions); XC does not touch OV (N-12) */ else if ((c->legacy & 1) && (op & 2)) c->ov = 0; break;
     case 0xE8: case 0xE9: case 0xEA: case 0xEB:                                                   /* CC */
         imm = fetch(c); if (cond(c)) { push(c, c->pc); c->pc = imm; if (op & 2) c->ov = 0; } break;
     case 0xEC: case 0xED: case 0xEE: case 0xEF:                                                   /* RETC */
-        if (cond(c)) { c->pc = pop(c); if (op & 2) c->ov = 0; } break;
+        if (cond(c)) { c->pc = pop(c); if ((c->legacy & 1) && (op & 2)) c->ov = 0; } break;   /* RETC: no status bits affected (N-12) */
     case 0xF0: case 0xF1: case 0xF2: case 0xF3:                                                   /* BCNDD */
         imm = fetch(c); if (cond(c)) { if (op & 2) c->ov = 0; delay_slot(c, c->pc); c->pc = imm; } break;
     case 0xF8: case 0xF9: case 0xFA: case 0xFB:                                                   /* CCD */
         imm = fetch(c); if (cond(c)) { push(c, c->pc + 2); if (op & 2) c->ov = 0; delay_slot(c, c->pc); c->pc = imm; } break;
     case 0xFC: case 0xFD: case 0xFE: case 0xFF:                                                   /* RETCD */
-        if (cond(c)) { uint16_t r = pop(c); if (op & 2) c->ov = 0; delay_slot(c, c->pc); c->pc = r; } break;
+        if (cond(c)) { uint16_t r = pop(c); if ((c->legacy & 1) && (op & 2)) c->ov = 0; delay_slot(c, c->pc); c->pc = r; } break;
     default:                                                                                       /* MPY #k13 */
         if ((op >> 8) >= 0xC0 && (op >> 8) <= 0xDF) { int32_t k = op & 0x1fff; if (k & 0x1000) k -= 0x2000; c->preg = (int32_t)(int16_t)c->treg0 * k; }
         else c->status = RUN_BADOP;
@@ -476,8 +484,8 @@ static void exec_be(C5x *c) {
     case 0x18: c->acc = do_sub(c, c->acc, c->accb, 0, 0); break;
     case 0x19: c->acc = do_sub(c, c->acc, c->accb, !c->c, 0); break;
     case 0x1A: c->acc ^= c->accb; break;
-    case 0x1B: if (c->legacy & 4 ? c->acc >= c->accb : (int32_t)c->acc >= (int32_t)c->accb) { c->accb = c->acc; c->c = 1; } else { c->acc = c->accb; c->c = 0; } break;
-    case 0x1C: if (c->legacy & 4 ? c->acc >= c->accb : (int32_t)c->acc >= (int32_t)c->accb) { c->acc = c->accb; c->c = 0; } else { c->accb = c->acc; c->c = 1; } break;
+    case 0x1B: if ((int32_t)c->acc >= (int32_t)c->accb) { c->accb = c->acc; c->c = 1; } else { c->acc = c->accb; c->c = 0; } break;
+    case 0x1C: if ((int32_t)c->acc >= (int32_t)c->accb) { c->acc = c->accb; c->c = 0; } else { c->accb = c->acc; c->c = 1; } break;
     case 0x1D: t = c->acc; c->acc = c->accb; c->accb = t; break;
     case 0x1E: c->accb = c->acc; break;
     case 0x1F: c->acc = c->accb; break;
@@ -491,7 +499,7 @@ static void exec_be(C5x *c) {
     case 0x3A: c->pc = pop(c); restore_ctx(c); c->intm = 0; break;          /* RETE */
     case 0x3C: push(c, (uint16_t)c->acc); break;
     case 0x3D: { uint16_t p = (uint16_t)c->acc; push(c, c->pc + 2); delay_slot(c, c->pc); c->pc = p; break; }
-    case 0x40: c->intm = 0; break; case 0x41: c->intm = 1; break;
+    case 0x40: c->intm = 0; c->int_inh = 1; break; case 0x41: c->intm = 1; break;
     case 0x42: c->ovm = 0; break; case 0x43: c->ovm = 1; break;
     case 0x44: c->cnf = 0; break; case 0x45: c->cnf = 1; break;
     case 0x46: c->sxm = 0; break; case 0x47: c->sxm = 1; break;
@@ -500,7 +508,7 @@ static void exec_be(C5x *c) {
     case 0x4C: c->xf = 0; break; case 0x4D: c->xf = 1; break;
     case 0x4E: c->c = 0; break; case 0x4F: c->c = 1; break;
     case 0x51: push(c, c->pc); c->pc = 0x22; break;
-    case 0x52: push(c, c->pc); c->pc = 0x24; break;
+    case 0x52: push(c, c->pc); c->pc = 0x24; c->intm = 1; break;
     case 0x58: c->preg = 0; break;
     case 0x59: c->acc = 0; c->preg = 0; break;
     case 0x5A: if (c->treg1 & 0x10) c->acc = c->sxm ? (uint32_t)((int32_t)c->acc >> 16) : c->acc >> 16; break;   /* SATH */
@@ -528,7 +536,7 @@ static void exec_bf(C5x *c) {
     switch (op & 0xff) {
     case 0x00: case 0x01: case 0x02: case 0x03: c->pm = op & 3; break;
     case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D: case 0x0E: case 0x0F:
-        imm = fetch(c); c->ar[op & 7] = imm; break;
+        imm = fetch(c); c->ar[op & 7] = imm; if ((op & 7) == 0) c->ar0_dirty = 1; break;
     case 0x44: case 0x45: case 0x46: case 0x47: { uint16_t r = c->ar[c->arp]; int m = op & 3;
         uint16_t cmpv = c->cmpr_ar0 ? c->ar[0] : c->arcr;
         c->tc = m == 0 ? r == cmpv : m == 1 ? r < cmpv : m == 2 ? r > cmpv : r != cmpv; break; }
@@ -588,11 +596,13 @@ int c5x_run(C5x *c, uint64_t budget) {
             else if (!c->rep_cont && seq && (h == 0x7B || (h >= 0xE0 && h <= 0xE3) || (h >= 0xE8 && h <= 0xEB) || (h >= 0xEC && h <= 0xEF) || (h >= 0xFC && h <= 0xFF && h != 0xFF))) cy = 2;   /* not-taken conditional */
             c->cycles += cy - 1;
         }
+        if (c->ar0_dirty) { if (!c->ndx) { c->indx = c->arcr = c->ar[0]; } c->ar0_dirty = 0; }   /* NDX=0 ('C2x compatible, the reset state): anything that loads/modifies AR0 also loads INDX and ARCR (audit #10, manual 6.3 LAR/MAR/SAR) */
+        c->ar0_prev = c->ar[0];
         if (c->status == RUN_BADOP) { c->pc = ppc; return RUN_BADOP; }
         if (c->rptc > 0) { if (ppc == c->rpt_end) { c->pc = c->rpt_start; c->rptc--; c->rep_cont = 1; } else c->rep_cont = 0; }
         else { c->rptc = 0; c->rep_cont = 0; }
         for (uint64_t k = c0; k < c->cycles; k++) tick_timer(c);
-        if (c->rptc <= 0) check_int(c);      /* a single-instruction RPT repeat is not interruptible on the real C5x */
+        if (c->int_inh) c->int_inh = 0; else if (c->rptc <= 0) check_int(c);      /* a single-instruction RPT repeat is not interruptible on the real C5x */
         if (c->stop) return RUN_STOP;
     }
     return RUN_OK;
@@ -607,7 +617,7 @@ void c5x_serial_tick(C5x *c, int16_t rx) {
 }
 void c5x_set_xint_mode(C5x *c, int m) { c->xint_mode = m; c->xint_first = 1; }
 void c5x_set_cycle_model(C5x *c, int m) { c->cyc_model = m; }
-void c5x_set_legacy(C5x *c, int m) { c->legacy = m; }   /* bit0 NORM(acc=0), bit2 unsigned CRGT/CRLT, bit3 TIM reset 0 (bit1 unused: XC audit finding was wrong) */
+void c5x_set_legacy(C5x *c, int m) { c->legacy = m; }   /* kept for API compatibility only: no behaviour depends on it any more (git history is the rollback) */
 uint64_t c5x_idle_cycles(C5x *c) { return c->idle_cycles; }
 uint64_t c5x_total_cycles(C5x *c) { return c->cycles; }
 
@@ -618,6 +628,10 @@ void c5x_set_cmpr_ar0(C5x *c, int v) { c->cmpr_ar0 = v; }
 uint32_t c5x_dxr_head(C5x *c) { return c->dxr_head; }
 uint16_t *c5x_dxr_ring(C5x *c) { return c->dxr_ring; }
 
+void c5x_set_watch(C5x *c, int32_t a) { c->watch_a = a; memset(c->watch_hits, 0, sizeof c->watch_hits); }
+uint32_t c5x_watch_hits(C5x *c, uint32_t pc) { return c->watch_hits[pc & 0xFFFF]; }
+uint32_t c5x_pc_hits(C5x *c, uint32_t pc) { return c->pc_hits[pc & 0xFFFF]; }
+void c5x_pc_hits_clear(C5x *c) { memset(c->pc_hits, 0, sizeof c->pc_hits); }
 void c5x_set_trace(C5x *c, int32_t pc) { c->trace_pc = pc; c->trace_n = 0; }
 uint32_t c5x_trace_n(C5x *c) { return c->trace_n; }
 void c5x_trace_get(C5x *c, uint32_t i, uint32_t *acc, uint16_t *ret, uint16_t *ret2) { *acc = c->trace_buf[i].acc; *ret = c->trace_buf[i].ret; *ret2 = c->trace_buf[i].ret2; }

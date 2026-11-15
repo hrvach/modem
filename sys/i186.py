@@ -20,6 +20,9 @@ _l.i186_set_ro_page.argtypes = [C.c_void_p, C.c_uint32, C.c_int]
 _l.i186_set_bp.argtypes = [C.c_void_p, C.c_uint32, C.c_int]
 _l.i186_irq.argtypes = [C.c_void_p, C.c_int]
 _l.i186_stop.argtypes = [C.c_void_p]
+_l.i186_irq_clear.argtypes = [C.c_void_p]
+_l.i186_irq_pending.restype = C.c_int; _l.i186_irq_pending.argtypes = [C.c_void_p]
+_l.i186_set_cycle_model.argtypes = [C.c_void_p, C.c_int]
 _l.i186_cycles.restype = C.c_uint64; _l.i186_cycles.argtypes = [C.c_void_p]
 _l.i186_add_cycles.argtypes = [C.c_void_p, C.c_uint64]
 _l.i186_get_badop.restype = C.c_uint32; _l.i186_get_badop.argtypes = [C.c_void_p]
@@ -40,6 +43,9 @@ class CPU:
     def ro_page(self, page, on=True): _l.i186_set_ro_page(self.h, page, int(on))
     def bp(self, phys, on=True): _l.i186_set_bp(self.h, phys, int(on))
     def irq(self, vec): _l.i186_irq(self.h, vec)
+    def irq_clear(self): _l.i186_irq_clear(self.h)
+    def irq_pending(self): return _l.i186_irq_pending(self.h)
+    def cycle_model(self, m): _l.i186_set_cycle_model(self.h, m)
     def stop(self): _l.i186_stop(self.h)
     @property
     def cycles(self): return _l.i186_cycles(self.h)

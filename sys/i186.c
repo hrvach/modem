@@ -26,6 +26,7 @@ typedef struct {
     uint16_t *ioarr;
     int halted, status, stop;
     int irq_pending, irq_vec;            /* external maskable interrupt request */
+    int cyc_model;                       /* 0 = legacy flat 4 cycles/instruction, 1 = approximate 80C186 clock counts */
     uint64_t cycles;
     uint32_t *hits;
     uint32_t ring[256], ring_i;
@@ -46,6 +47,27 @@ static const uint8_t PAR[256] = {
     P6(1), P6(0), P6(0), P6(1)
 };
 
+/* approximate 80C186 clock counts per opcode (register forms); decode_modrm adds 6 for a memory operand,
+ * taken branches, multiplies/divides, indirect calls and interrupt entry add their extra where executed */
+static const uint8_t CYC[256] = {
+     3,  3,  3,  3,  3,  3,  9,  8,  3,  3,  3,  3,  3,  3,  9,  3,
+     3,  3,  3,  3,  3,  3,  9,  8,  3,  3,  3,  3,  3,  3,  9,  8,
+     3,  3,  3,  3,  3,  3,  3,  4,  3,  3,  3,  3,  3,  3,  3,  4,
+     3,  3,  3,  3,  3,  3,  3,  7,  3,  3,  3,  3,  3,  3,  3,  7,
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,
+    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    36, 51, 27,  3,  3,  3,  3,  3, 10, 24, 10, 24,  5,  5,  5,  5,
+     4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+     4,  4,  4,  4,  3,  3,  4,  4,  2,  2,  2,  2,  2,  0,  2, 14,
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3, 23,  3,  9,  8,  3,  3,
+     8,  8,  8,  8,  5,  5,  5,  5,  3,  3,  5,  5,  5,  5,  5,  5,
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,
+     6,  6, 18, 16, 12, 12,  6,  6, 15,  8, 25, 22,  3,  5,  3, 28,
+     4,  4,  4,  4, 19, 15,  3, 11,  3,  3,  3,  3,  3,  3,  3,  3,
+     6,  6,  6,  5, 10, 10, 10, 10, 15, 14, 14, 14,  8,  8,  8,  8,
+     3,  3,  3,  3,  2,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,
+};
+
 C *i186_new(void) {
     C *c = calloc(1, sizeof *c);
     c->mem = calloc(1 << 20, 1); c->hits = calloc(1 << 20, 4); c->bp = calloc(1 << 20, 1);
@@ -64,6 +86,8 @@ void i186_set_bp(C *c, uint32_t phys, int on) { c->bp[phys & 0xFFFFF] = on; }
 void i186_stop(C *c) { c->stop = 1; }
 void i186_irq(C *c, int vec) { c->irq_pending = 1; c->irq_vec = vec; }
 void i186_irq_clear(C *c) { c->irq_pending = 0; }
+int i186_irq_pending(C *c) { return c->irq_pending; }
+void i186_set_cycle_model(C *c, int m) { c->cyc_model = m; }
 uint64_t i186_cycles(C *c) { return c->cycles; }
 void i186_add_cycles(C *c, uint64_t n) { c->cycles += n; }
 uint32_t i186_get_badop(C *c) { return c->last_badop_pc | ((uint32_t)c->last_badop << 24); }
@@ -124,6 +148,7 @@ static inline uint32_t MSB(int w) { return w ? 0x8000 : 0x80; }
 static void decode_modrm(C *c) {
     uint8_t m = fetch8(c); c->mod = m >> 6; c->regf = (m >> 3) & 7; c->rmf = m & 7;
     if (c->mod == 3) return;
+    if (c->cyc_model) c->cycles += 6;                      /* memory operand: EA + bus cycle */
     uint16_t off = 0; int dseg = DS;
     switch (c->rmf) {
     case 0: off = c->r[BX] + c->r[SI]; break; case 1: off = c->r[BX] + c->r[DI]; break;
@@ -169,6 +194,7 @@ static uint32_t shift(C *c, int op, uint32_t v, int n, int w) {
 }
 
 static void do_int(C *c, int vec) {
+    if (c->cyc_model) c->cycles += 42;
     push16(c, flags_get(c)); push16(c, c->sr[CS]); push16(c, c->ip);
     c->ifl = 0; c->tf = 0;
     c->ip = mrd(c, vec * 4, 1); c->sr[CS] = mrd(c, vec * 4 + 2, 1);
@@ -199,7 +225,7 @@ static void strop(C *c, uint8_t op) {
         case 0x6C: mwr(c, lin(c->sr[ES], c->r[DI]), w, io_read(c, c->r[DX], w)); c->r[DI] += step; break;
         case 0x6E: io_write(c, c->r[DX], w, mrd(c, lin(c->sr[useseg], c->r[SI]), w)); c->r[SI] += step; break;
         }
-        c->cycles += 4;
+        c->cycles += c->cyc_model ? 8 : 4;
         if (rep) { c->r[CX]--; cnt = c->r[CX]; if ((op & 0xFE) == 0xA6 || (op & 0xFE) == 0xAE) { if (zrep ? !c->zf : c->zf) break; } } else cnt = 0;
     }
 }
@@ -214,7 +240,7 @@ static void exec1(C *c) {
         if (op == 0x26) c->seg_ovr = ES; else if (op == 0x2E) c->seg_ovr = CS; else if (op == 0x36) c->seg_ovr = SS; else if (op == 0x3E) c->seg_ovr = DS;
         else if (op == 0xF2) { c->rep = 1; c->repz = 0; } else if (op == 0xF3) { c->rep = 1; c->repz = 1; } else if (op == 0xF0) {} else break;
     }
-    c->cycles += 4;
+    c->cycles += c->cyc_model ? CYC[op] : 4;
     int w = op & 1;
     if (op < 0x40 && (op & 7) < 6) {                       /* ALU forms */
         int aop = op >> 3;
@@ -247,7 +273,7 @@ static void exec1(C *c) {
     case 0x69: case 0x6B: { decode_modrm(c); int32_t a = (int16_t)rm_rd(c, 1); int32_t b = op == 0x69 ? (int16_t)fetch16(c) : (int8_t)fetch8(c); int32_t r = a * b; c->r[c->regf] = r; c->cf = c->of = (r != (int16_t)r); break; }
     case 0x6C: case 0x6D: case 0x6E: case 0x6F: strop(c, op); break;
     case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76: case 0x77:
-    case 0x78: case 0x79: case 0x7A: case 0x7B: case 0x7C: case 0x7D: case 0x7E: case 0x7F: { int8_t d = fetch8(c); if (cond(c, op & 0xF)) { c->ip += d; c->cycles += 12; } break; }
+    case 0x78: case 0x79: case 0x7A: case 0x7B: case 0x7C: case 0x7D: case 0x7E: case 0x7F: { int8_t d = fetch8(c); if (cond(c, op & 0xF)) { c->ip += d; c->cycles += c->cyc_model ? 9 : 12; } break; }
     case 0x80: case 0x81: case 0x82: case 0x83: { decode_modrm(c); int ww = op & 1; uint32_t a = rm_rd(c, ww), b = op == 0x81 ? fetch16(c) : (op == 0x83 ? (uint16_t)(int16_t)(int8_t)fetch8(c) : fetch8(c)); if (op == 0x83 && !ww) b &= 0xFF; uint32_t r = alu(c, c->regf, a, b & MASK(ww), ww); if (c->regf != 7) rm_wr(c, ww, r); break; }
     case 0x84: case 0x85: { decode_modrm(c); alu(c, 4, rm_rd(c, w), getreg(c, c->regf, w), w); break; }
     case 0x86: case 0x87: { decode_modrm(c); uint32_t a = rm_rd(c, w), b = getreg(c, c->regf, w); rm_wr(c, w, b); setreg(c, c->regf, w, a); break; }
@@ -261,7 +287,7 @@ static void exec1(C *c) {
     case 0x91: case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: case 0x97: { uint16_t t = c->r[AX]; c->r[AX] = c->r[op & 7]; c->r[op & 7] = t; break; }
     case 0x98: c->r[AX] = (int16_t)(int8_t)(c->r[AX] & 0xFF); break;
     case 0x99: c->r[DX] = (c->r[AX] & 0x8000) ? 0xFFFF : 0; break;
-    case 0x9A: { uint16_t o = fetch16(c), s = fetch16(c); push16(c, c->sr[CS]); push16(c, c->ip); c->ip = o; c->sr[CS] = s; c->cycles += 20; break; }
+    case 0x9A: { uint16_t o = fetch16(c), s = fetch16(c); push16(c, c->sr[CS]); push16(c, c->ip); c->ip = o; c->sr[CS] = s; if (!c->cyc_model) c->cycles += 20; break; }
     case 0x9B: break;
     case 0x9C: push16(c, flags_get(c)); break;
     case 0x9D: flags_set(c, pop16(c)); break;
@@ -295,7 +321,7 @@ static void exec1(C *c) {
     case 0xD6: setreg(c, AX, 0, c->cf ? 0xFF : 0); break;
     case 0xD7: setreg(c, AX, 0, mrd(c, lin(c->sr[c->seg_ovr >= 0 ? c->seg_ovr : DS], c->r[BX] + (c->r[AX] & 0xFF)), 0)); break;
     case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF: decode_modrm(c); break;   /* ESC: ignore */
-    case 0xE0: case 0xE1: case 0xE2: { int8_t d = fetch8(c); c->r[CX]--; int t = c->r[CX] != 0; if (op == 0xE0) t = t && !c->zf; else if (op == 0xE1) t = t && c->zf; if (t) c->ip += d; break; }
+    case 0xE0: case 0xE1: case 0xE2: { int8_t d = fetch8(c); c->r[CX]--; int t = c->r[CX] != 0; if (op == 0xE0) t = t && !c->zf; else if (op == 0xE1) t = t && c->zf; if (t) { c->ip += d; if (c->cyc_model) c->cycles += 10; } break; }
     case 0xE3: { int8_t d = fetch8(c); if (!c->r[CX]) c->ip += d; break; }
     case 0xE4: case 0xE5: { uint8_t p = fetch8(c); setreg(c, AX, w, io_read(c, p, w)); break; }
     case 0xE6: case 0xE7: { uint8_t p = fetch8(c); io_write(c, p, w, getreg(c, AX, w)); break; }
@@ -313,10 +339,10 @@ static void exec1(C *c) {
         case 0: case 1: alu(c, 4, v, w ? fetch16(c) : fetch8(c), w); break;
         case 2: rm_wr(c, w, ~v); break;
         case 3: { uint32_t r = alu(c, 5, 0, v, w); c->cf = v != 0; rm_wr(c, w, r); break; }
-        case 4: if (w) { uint32_t r = (uint32_t)c->r[AX] * v; c->r[AX] = r; c->r[DX] = r >> 16; c->cf = c->of = (r >> 16) != 0; } else { uint32_t r = (c->r[AX] & 0xFF) * v; c->r[AX] = r; c->cf = c->of = (r >> 8) != 0; } break;
-        case 5: if (w) { int32_t r = (int32_t)(int16_t)c->r[AX] * (int16_t)v; c->r[AX] = r; c->r[DX] = r >> 16; c->cf = c->of = (r != (int16_t)r); } else { int32_t r = (int8_t)c->r[AX] * (int8_t)v; c->r[AX] = r; c->cf = c->of = (r != (int8_t)r); } break;
-        case 6: if (w) { uint32_t n = ((uint32_t)c->r[DX] << 16) | c->r[AX]; if (!v || n / v > 0xFFFF) { do_int(c, 0); break; } c->r[AX] = n / v; c->r[DX] = n % v; } else { uint32_t n = c->r[AX]; if (!v || n / v > 0xFF) { do_int(c, 0); break; } c->r[AX] = ((n % v) << 8) | (n / v); } break;
-        case 7: if (w) { int32_t n = ((uint32_t)c->r[DX] << 16) | c->r[AX]; int32_t d = (int16_t)v; if (!d || n / d > 32767 || n / d < -32768) { do_int(c, 0); break; } c->r[AX] = n / d; c->r[DX] = n % d; } else { int32_t n = (int16_t)c->r[AX]; int32_t d = (int8_t)v; if (!d || n / d > 127 || n / d < -128) { do_int(c, 0); break; } c->r[AX] = (((n % d) & 0xFF) << 8) | ((n / d) & 0xFF); } break;
+        case 4: if (c->cyc_model) c->cycles += 28; if (w) { uint32_t r = (uint32_t)c->r[AX] * v; c->r[AX] = r; c->r[DX] = r >> 16; c->cf = c->of = (r >> 16) != 0; } else { uint32_t r = (c->r[AX] & 0xFF) * v; c->r[AX] = r; c->cf = c->of = (r >> 8) != 0; } break;
+        case 5: if (c->cyc_model) c->cycles += 28; if (w) { int32_t r = (int32_t)(int16_t)c->r[AX] * (int16_t)v; c->r[AX] = r; c->r[DX] = r >> 16; c->cf = c->of = (r != (int16_t)r); } else { int32_t r = (int8_t)c->r[AX] * (int8_t)v; c->r[AX] = r; c->cf = c->of = (r != (int8_t)r); } break;
+        case 6: if (c->cyc_model) c->cycles += 36; if (w) { uint32_t n = ((uint32_t)c->r[DX] << 16) | c->r[AX]; if (!v || n / v > 0xFFFF) { do_int(c, 0); break; } c->r[AX] = n / v; c->r[DX] = n % v; } else { uint32_t n = c->r[AX]; if (!v || n / v > 0xFF) { do_int(c, 0); break; } c->r[AX] = ((n % v) << 8) | (n / v); } break;
+        case 7: if (c->cyc_model) c->cycles += 40; if (w) { int32_t n = ((uint32_t)c->r[DX] << 16) | c->r[AX]; int32_t d = (int16_t)v; if (!d || n / d > 32767 || n / d < -32768) { do_int(c, 0); break; } c->r[AX] = n / d; c->r[DX] = n % d; } else { int32_t n = (int16_t)c->r[AX]; int32_t d = (int8_t)v; if (!d || n / d > 127 || n / d < -128) { do_int(c, 0); break; } c->r[AX] = (((n % d) & 0xFF) << 8) | ((n / d) & 0xFF); } break;
         }
         break; }
     case 0xF8: c->cf = 0; break; case 0xF9: c->cf = 1; break; case 0xFA: c->ifl = 0; break; case 0xFB: c->ifl = 1; break;
@@ -326,9 +352,9 @@ static void exec1(C *c) {
         decode_modrm(c);
         switch (c->regf) {
         case 0: case 1: rm_wr(c, 1, incdec(c, rm_rd(c, 1), c->regf, 1)); break;
-        case 2: { uint16_t t = rm_rd(c, 1); push16(c, c->ip); c->ip = t; break; }
-        case 3: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); uint16_t o = mrd(c, a, 1), s = mrd(c, a + 2, 1); push16(c, c->sr[CS]); push16(c, c->ip); c->ip = o; c->sr[CS] = s; break; }
-        case 4: c->ip = rm_rd(c, 1); break;
+        case 2: { uint16_t t = rm_rd(c, 1); push16(c, c->ip); c->ip = t; if (c->cyc_model) c->cycles += 10; break; }
+        case 3: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); uint16_t o = mrd(c, a, 1), s = mrd(c, a + 2, 1); push16(c, c->sr[CS]); push16(c, c->ip); c->ip = o; c->sr[CS] = s; if (c->cyc_model) c->cycles += 28; break; }
+        case 4: c->ip = rm_rd(c, 1); if (c->cyc_model) c->cycles += 8; break;
         case 5: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); c->ip = mrd(c, a, 1); c->sr[CS] = mrd(c, a + 2, 1); break; }
         case 6: { uint16_t v = rm_rd(c, 1); push16(c, v); break; }
         default: return (void)bad(c, op);
@@ -344,7 +370,7 @@ int i186_run(C *c, uint64_t budget) {
     c->stop = 0; c->status = ST_OK;
     while (c->cycles < end) {
         if (c->irq_pending && c->ifl) { c->halted = 0; c->irq_pending = 0; do_int(c, c->irq_vec); }
-        if (c->halted) { if (!c->irq_pending) { c->cycles = end; return ST_HLT; } continue; }
+        if (c->halted) { c->cycles = end; return ST_HLT; }   /* a pending request with IF=0 cannot wake it */
         uint32_t p = lin(c->sr[CS], c->ip);
         if (!first && c->bp[p]) return ST_BP;
         first = 0;
