@@ -16,7 +16,7 @@ class Resampler:
         a = (ctypes.c_int16 * n)(*[max(-32768, min(32767, int(v))) for v in xs]); mo = int(n * r_out / r_in) + 4; o = (ctypes.c_int16 * mo)()
         return list(o[:_rl.rs_run(self.h, a, n, o, mo, float(r_in), float(r_out))])
 DIAL_DWELL = float(os.environ.get('DIAL_DWELL', '0.5'))     # seconds between the end of the dialled digit and ring voltage at the callee (was a fixed 3.0 s)
-RING_ON = float(os.environ.get('RING_ON', '2.0'))           # seconds of ring voltage per cadence period
+RING_ON = float(os.environ.get('RING_ON', '1.0'))           # seconds of ring voltage per cadence period
 RING_PERIOD = float(os.environ.get('RING_PERIOD', '6.0'))   # cadence period
 class Link:
     """Two Machines joined by a line. TIME POLICY: both machines are advanced against ONE shared absolute clock (self._gt, in CPU cycles). Every slice the clock
@@ -60,6 +60,30 @@ class Link:
             elif b'RING' in self.txt['a'] and self.ring_seen_at is None: pass
         elif self.state == 'answering':
             self.set_state('connected')                                      # line connected both ways
+    def write_wav(self, path, rate=22050, first_chunk=0):
+        """Stereo wav (left = caller B, right = answerer A) at ONE true sample rate: the audio of each modem is cut at its codec-rate changes (Machine.rate_idx) and every
+        constant-rate segment is resampled (sinc) from its real rate (7200 / 8640 / 9600 / 10267 Hz...) to `rate`; the two channels are padded to the same duration.
+        A file written at the nominal 7200 Hz without this plays everything recorded at 9600 Hz at 0.75x speed and pitch (10267 Hz: 0.70x)."""
+        import wave, struct
+        rs = Resampler(); out = {}
+        for k, m in (('a', self.a), ('b', self.b)):
+            xs = [((v & 0xFFFF) ^ 0x8000) - 0x8000 for v in self.audio[k]]; base = len(m.tx_all) - len(xs)
+            cuts = [(max(0, i - base), r) for i, r in m.rate_idx]
+            cur = [r for i, r in m.rate_idx if i <= base][-1] if any(i <= base for i, r in m.rate_idx) else 7200
+            segs = []; pos = 0
+            for i, r in [(i, r) for i, r in cuts if i > 0]:
+                if i > pos: segs.append((pos, min(i, len(xs)), cur)); pos = i
+                cur = r
+            if pos < len(xs): segs.append((pos, len(xs), cur))
+            o = []
+            for a, b, r in segs:
+                o += rs(xs[a:b], r, rate) if b > a else []
+            out[k] = o
+        n = max(len(out['a']), len(out['b']))
+        for k in 'ab': out[k] += [0] * (n - len(out[k]))
+        with wave.open(path, 'wb') as w:
+            w.setnchannels(2); w.setsampwidth(2); w.setframerate(rate)
+            w.writeframes(b''.join(struct.pack('<hh', max(-32768, min(32767, out['b'][i])), max(-32768, min(32767, out['a'][i]))) for i in range(n)))
     def _delayed(self, k, lst):
         if self.delay_samples <= 0: return lst
         buf = (self._dq[k] if self._dq[k] else [0] * self.delay_samples) + lst

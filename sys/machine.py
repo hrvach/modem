@@ -24,6 +24,7 @@ HB_TIMER = os.environ.get('HB_TIMER', '1') != '0'      # host heartbeat from the
 DSP_CLK_FIXED = os.environ.get('DSP_CLK_FIXED', '1') != '0'      # the DSP clock is fixed (40.32 MHz, board-confirmed; the C51 has no software-programmable PLL, CLKMD is pin-strapped), so DSP cycles per codec sample = DSP_HZ / rate; DSP_CLK_FIXED=0 restores the old model (5600 cycles per sample at every rate = the DSP clock following the codec rate, physically wrong)
 PORT_RB = os.environ.get('PORT_RB', '1') != '0'   # DSP I/O ports without a model read back the last value written (default 0)
 SEC_FRAME = os.environ.get('SEC_FRAME', '1') != '0'   # AC01 secondary frame at half a primary interval (no ADC/DAC sample); 0 = old model (secondary word replaces a whole sample period)
+CMD_OVR = os.environ.get('CMD_OVR', '')      # experiment: rewrite host->DSP command words, ";"-separated: "42=F9" (arg of every command 0x42), "50@2=45" (2nd of each run of six 0x50), "43>44" (rename command 0x43 to 0x44)
 INT23 = os.environ.get('INT23', '1') != '0'     # wire DSP INT2 (ASIC mailbox) and INT3 (AC01 FS)
 AC01_MODEL = os.environ.get('AC01_MODEL', '1') != '0'
 AC01_CLAMP = {int(k): int(v) for k, v in (kv.split(':') for kv in os.environ.get('AC01_CLAMP', '').split(',') if kv)}      # experiment: map computed rates, e.g. 10267:9600
@@ -142,7 +143,7 @@ class Machine:
         self.rxbuf = deque(); self.rx_under = 0; self.rx_log = []; self.cur_rx = 0; self.tx_seen = 0; self.tx_all = []   # audio link: input samples from the peer, output samples we produced
         self.port5_pcs = Counter()
         self.cmd_log16 = []; self.cmd_log = []; self.rom_replies = False; self.hb_ticks = 1 if HB_TIMER else 3; self.hb_count = 0; self._hb_e = 0; self.heartbeat = True   # DSP -> host INT0 heartbeat at the DSP sample rate (supervisor timebase)
-        self.dsp = None; self.sender_pcs = None; self.dsp_log = []; self.next_samp = INF; self.rate = 7200; self.sample_cyc = SAMPLE_CYC; self.dsp_cps = DSP_CPS; self.rate_log = []; self.aic = {1: 18, 2: 18, 3: 0, 4: 5, 5: 1, 6: 0}; self.aic_req = False; self._tick_dc = 0; self.aic_h = 0; self.mclk_n = 0; self.aic_log = []; self._tx_req = False; self._tx_hold = 0
+        self.rate_idx = [(0, 7200)]; self.dsp = None; self.sender_pcs = None; self.dsp_log = []; self.next_samp = INF; self.rate = 7200; self.sample_cyc = SAMPLE_CYC; self.dsp_cps = DSP_CPS; self.rate_log = []; self.aic = {1: 18, 2: 18, 3: 0, 4: 5, 5: 1, 6: 0}; self.aic_req = False; self._tick_dc = 0; self.aic_h = 0; self.mclk_n = 0; self.aic_log = []; self._tx_req = False; self._tx_hold = 0
         self.h2d = {w: 0 for w in range(0x58, 0x60)}; self.d2h = {w: 0 for w in range(0x58, 0x60)}
         self.hostbytes = {}                       # host-side byte registers 0x40..0x5E (what the host wrote)
         self.wr_pcs = Counter(); self.rd_pcs = Counter(); self.msg_log = []; self.flags56 = 0x0003; self.flagsD = 0; self.bankwr = os.environ.get('BANKWR', '1') == '1'; self.flag_log = []; self.evt4_n = 0; self.data_word = 0; self.data_full = 0; self.data_words_sent = 0; self.data_words_read = 0; self.ovl_status = 0; self.ovl_addr = 0; self.ovl_data = bytearray(); self.ovl_bytes = {}; self.ovl_loads = []
@@ -247,6 +248,7 @@ class Machine:
             idx = (p - 0x40) // 4; hi = ((p - 0x40) // 2) % 2; w = 0x58 + idx
             self.h2d[w] = (self.h2d[w] & 0x00FF) | ((v & 0xFF) << 8) if hi else (self.h2d[w] & 0xFF00) | (v & 0xFF)
             if p == 0x5E:
+                if CMD_OVR: self._cmd_override()
                 self.h2d_pending = 1
                 if INT23: self.dsp.irq(c5x.INT2)                  # ASIC pin 109 -> DSP INT2 (pin 39): CPU-to-DSP mailbox word available (board-verified, courier-emu docs/board-verified-403.md)
         if 0x40 <= p <= 0x5E and p % 2 == 0 and self.dsp is None:             # banks A (0x40-0x4E) and B (0x50-0x5E): 4 words each, lo at +0, hi at +2
@@ -329,10 +331,27 @@ class Machine:
     def set_rate(self, r):
         """Codec sample rate (Hz): 7200 or 9600; changes the CPU clocks and DSP cycles per sample and the host heartbeat divider (2400 Hz symbol heartbeat)."""
         if r == self.rate: return
+        self.rate_idx.append((len(self.tx_all) + ((self.dsp.dxr_head() - self.tx_seen) if self.dsp is not None else 0), r))   # (samples produced so far, new rate): lets the WAV export put every sample at its true rate
         self.rate = r; self.sample_cyc = CPU_HZ // r
         if not DSP_CLK_FIXED: self.dsp_cps = DSP_CPS            # the DSP clock scales with the codec/symbol clock (one symbol = 3 samples = PRD 16800 cycles at every rate)
         else: self.dsp_cps = DSP_HZ // r
         self.rate_log.append((self.cpu.cycles / CPU_HZ, r))
+    def _cmd_override(self):
+        cmd = self.h2d[0x5E] & 0xFF
+        if not hasattr(self, '_ovr'):
+            self._ovr = {'arg': {}, 'pos': {}, 'ren': {}, 'cnt': {}}
+            for e in CMD_OVR.split(';'):
+                e = e.strip()
+                if not e: continue
+                if '>' in e: a, b = e.split('>'); self._ovr['ren'][int(a, 16)] = int(b, 16)
+                else:
+                    k, v = e.split('='); v = int(v, 16)
+                    if '@' in k: c, i = k.split('@'); self._ovr['pos'][(int(c, 16), int(i))] = v
+                    else: self._ovr['arg'][int(k, 16)] = v
+        o = self._ovr; n = o['cnt'].get(cmd, 0); o['cnt'][cmd] = n + 1
+        if cmd in o['ren']: self.h2d[0x5E] = (self.h2d[0x5E] & 0xFF00) | o['ren'][cmd]
+        val = o['pos'].get((cmd, n % 6 + 1), o['arg'].get(cmd))
+        if val is not None: self.h2d[0x5F] = (self.h2d[0x5F] & 0xFF00) | val
     def dsp_wr(self, p, v):
         q = p & 0xFF
         self.dsp_log.append((self.cpu.cycles, q, v))
