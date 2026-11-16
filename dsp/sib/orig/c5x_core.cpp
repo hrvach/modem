@@ -1,0 +1,2283 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Opcode helpers and execution behavior adapted from MAME's BSD-3-Clause
+// TMS320C5x implementation, copyright Ville Linde.
+#include "c5x_core.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
+
+namespace courier {
+
+// Serial port control register bits. The firmware writes 0x40c8 at program
+// 0x00c0: receiver and transmitter out of reset, burst frame sync, and both
+// TXM and MCM clear, which makes the C5x a slave to an externally supplied
+// clock and frame sync. That is the arrangement the DAA chipset's own
+// documentation describes, with the board clocking the bus.
+//
+// The status bits below are the half this core did not model. Without them a
+// transmit handshake never completes: the firmware writes DXR twice at
+// program 0x00c2 and then waits forever for a readiness it is never told
+// about, which is exactly what the access counts showed.
+// FO, the word format, is SPC bit 2 - C5x user's guide table 9-13, and the bit
+// docs/quad-dsp-pcm-path.md separates the two products on. The Quad writes
+// 40cc, FO = 1, eight-bit bytes; the I-modem and the 302 write 40c8, FO = 0,
+// sixteen-bit words. At 8 kHz that second case is two eight-bit
+// peripheral-port time slots per frame, MSB first, which puts the frame's
+// first slot in the high byte at both ends.
+static constexpr uint16_t SPC_FO   = 1u << 2;   // word format: 1 = byte
+static constexpr uint16_t SPC_XRST = 1u << 6;   // transmitter out of reset
+static constexpr uint16_t SPC_RRST = 1u << 7;   // receiver out of reset
+static constexpr uint16_t SPC_RRDY = 1u << 10;  // a received word is waiting
+static constexpr uint16_t SPC_XRDY = 1u << 11;  // DXR can take another word
+// IFR/IMR bit numbers, which are also this core's irq indices: the hardware
+// vector for irq n sits at (n + 1) * 2 words above the table base, so these
+// double as the vector-table ordering. SPRU056D Table 4-3.
+static constexpr unsigned IRQ_TINT = 3;   // on-chip timer
+static constexpr unsigned IRQ_RINT = 4;   // primary port: RSR -> DRR
+static constexpr unsigned IRQ_XINT = 5;   // primary port: DXR -> XSR
+
+// Register 4 applies gain in the analog half of the AC01, between the phone
+// line and the converter. DOUT carries all sixteen ADC bits; only DIN's DAC
+// word reserves its bottom two bits for control. Saturate receive gain at the
+// signed serial-word endpoints, without throwing away DOUT bits 1:0.
+static uint16_t ac01_input_scale(uint16_t sample, unsigned shifts)
+{
+    int32_t value = int16_t(sample);
+    if (shifts) value *= int32_t(1u << shifts);
+    value = std::clamp(value, int32_t(-32768), int32_t(32767));
+    return uint16_t(value);
+}
+
+static uint16_t ac01_input_sample(uint16_t sample, uint8_t register4)
+{
+    const unsigned gain = (register4 >> 2) & 3;
+    if (!gain) return 0;                 // analog input squelch
+    return ac01_input_scale(sample, gain - 1);  // 0, +6, +12 dB
+}
+
+static uint16_t ac01_output_sample(uint16_t sample, uint8_t register4)
+{
+    const unsigned gain = register4 & 3;
+    if (!gain) return 0;                 // analog output squelch
+    if (gain == 1) return sample & 0xfffc;
+    // Codes 2 and 3 are -6 and -12 dB. Division is deliberately before
+    // requantisation to the converter's 14-bit, left-justified word.
+    return uint16_t(int16_t(sample) / int32_t(1u << (gain - 1))) & 0xfffc;
+}
+
+[[noreturn]] static void fatalerror(const char *format, ...)
+{
+    char buffer[512];
+    va_list arguments;
+    va_start(arguments, format);
+    std::vsnprintf(buffer, sizeof(buffer), format, arguments);
+    va_end(arguments);
+    throw std::runtime_error(buffer);
+}
+
+C5xCore::C5xCore(Model model)
+    : m_rom_words(model == Model::C53 ? 0x4000 : model == Model::C52 ? 0x1000 : 0x2000),
+      m_saram_program_first(model == Model::C53 ? 0x4000 : 0x2000),
+      m_saram_words(model == Model::C53 ? 0x0c00 : model == Model::C52 ? 0 : 0x0400)
+{
+    // Courier external RAM wiring is a board setting, not a C53 property.
+    if (model != Model::C51) set_shared_window(0xffff, 0);
+    reset();
+}
+
+void C5xCore::reset()
+{
+    m_delay_move_ignored = 0;
+    m_delay_move_last_pc = m_delay_move_last_address = 0;
+    m_pc = m_op = 0;
+    m_acc = m_accb = m_preg = 0;
+    m_treg0 = m_treg1 = m_treg2 = 0;
+    std::fill(std::begin(m_ar), std::end(m_ar), 0);
+    m_rptc = 0;
+    m_repeat_active = false;
+    m_bmar = 0; m_brcr = 0; m_paer = m_pasr = 0;
+    m_greg = 0;
+    m_indx = m_dbmr = m_arcr = 0;
+    m_st0 = {}; m_st1 = {}; m_pmst = {};
+    invalidate_maps();
+    m_condition_start = m_xc_condition = condition_state();
+    m_delay_condition_pending = false;
+    // MP/MC comes out of reset at the pin's level. This firmware's reset code
+    // preserves it - `APL #0x07f8, @07` keeps bit 3 and clears IPTR - so the
+    // pin decides what program 0x0000 is for the whole run.
+    m_pmst.mpmc = m_mpmc_pin;
+    m_map = {};
+    m_st0.intm = 1;
+    m_st1.c = 1; m_st1.hm = 1; m_st1.sxm = 1; m_st1.xf = 1;
+    m_xf_falling_edges = 0;
+    m_ifr = m_imr = 0;
+    m_timer.tss = false;
+    m_ff.nmi_pending = false;
+    m_interrupt_vectors.fill(0xffff);
+    m_line_frame_irq = -1;
+    m_event_deadline = 0;
+    m_line_frame_interrupts = 0;
+    m_serial_frame_suppressed = 0;
+    m_line_frame_next_cycle = 0;
+    m_line_frame_phase = 0;
+    m_line_sample_phase = 0;
+    m_line_sample_due = false;
+    m_line_dac_sum = 0;
+    m_line_dac_count = 0;
+    m_call_tdm_active = false;
+    for (auto &phase : m_line_phase_tx) phase.clear();
+    m_line_frame_entry = -1;
+    m_ff.entry = false;
+    m_pending_overlay.clear();
+    std::fill(std::begin(m_pcstack), std::end(m_pcstack), 0);
+    m_pcstack_ptr = 0;
+    m_rpt_start = m_rpt_end = 0;
+    m_cbcr = m_cbsr1 = m_cber1 = m_cbsr2 = m_cber2 = 0;
+    m_timer = {}; m_tail_cycle = 0; m_serial = {}; m_tdm = {}; m_shadow = {};
+    // On this board RS is shared with the AC01.  configure_rom_codec() opts
+    // into that board wiring; later DSP resets must therefore return the
+    // external codec's control registers and frame state to power-up too.
+    //
+    // Two things here are the board, not the part, and a reset pin cannot
+    // change either: the oscillator the ASIC divides MCLK from, and the fact
+    // that the codec is on the net at all.  Carry the configured MCLK across
+    // and restart the codec at it.  Without this a reset silently returned
+    // the clock to the 2.88 MHz default, so every generation after the first
+    // ran at a rate the board never presents.
+    //
+    // The frame rate has to come back with the registers.  fs = MCLK/(2*A*B)
+    // and the reset above puts A and B back to their power-up 18, so leaving
+    // m_line_frame_period at the rate the *previous* generation programmed
+    // left the model clocking frames at a rate its own divider registers no
+    // longer said.  A call asserts this net two or three times, so that is
+    // most of the call.
+    if (m_rom_codec) {
+        const uint32_t nominal_mclk = m_codec.nominal_mclk_hz;
+        if (m_si3034_codec) configure_si3034_codec();
+        else m_codec = Ac01{};
+        m_event_deadline = 0;
+        m_codec.nominal_mclk_hz = nominal_mclk;
+        m_codec.mclk_hz = nominal_mclk;
+        m_line_frame_period = AC01_POWERUP_FRAME_PERIOD_CYCLES;
+    }
+    // Both wait-state registers come out of reset at maximum.
+    m_pdwsr = m_iowsr = 0xffff; m_cwsr = 0x000e;
+    m_codec_rx.clear();
+    m_codec_line_input = false;
+    m_codec_line_rx.clear();
+    m_codec_line_history.fill(0);
+    m_codec_line_position = 0;
+    m_codec_boot.clear();
+    m_line_rx.clear();
+    m_line_tx.clear();
+    m_line_tx_clock_events.clear();
+    m_line_rx_consumed = m_line_tx_nonzero = 0;
+    m_line_dac_writes = m_line_dac_frames = 0;
+    m_line_tx_last_pc = 0;
+    m_v8_mode = V8Mode::Off;
+    m_tdm_rx_ready = false;
+    m_v8_callback_ready = false;
+    m_negotiation_loop_active = false; m_negotiation_loop_entries = 0;
+    m_negotiation_loop_pc = m_negotiation_source = m_negotiation_pair = 0;
+    m_negotiation_source_value = m_negotiation_pair_value = 0; m_negotiation_acc = 0;
+    m_v8_dispatches = 0; m_v8_record = m_v8_handler = 0; m_v8_dispatch_pc = 0;
+    m_v8_countdown = m_v8_flags = 0;
+    m_negotiation_d76 = m_negotiation_d77 = 0;
+    m_negotiation_d78 = m_negotiation_d79 = 0;
+    m_negotiation_d26 = m_negotiation_indx = 0;
+    m_negotiation_arp = m_negotiation_pm = 0;
+    m_ff.idle = false;
+    m_instructions = m_cycles = 0;
+    m_io.fill(0xffff);
+    m_mailbox_output.fill(0);
+    m_asic_output.fill(0xffff);
+    m_io_events.clear();
+    m_mailbox_events.clear();
+    m_io_port_stats.fill({});
+    m_data_events.clear();
+    m_data_write_counts.fill(0);
+    // A range the caller armed is a diagnostic, not device state: keep what it
+    // recorded across the DSP's resets, as the data-write filter is kept.
+    if (m_trace_last < m_trace_first) m_pc_trace.clear();
+    m_pc_captures.clear();
+    // Whether writes are traced, and which cell, is a diagnostic the caller
+    // arms before the run - not device state the reset line clears. Clearing
+    // it here silently disarmed every `--dsp-write-watch` on these images,
+    // whose boot resets the core after the bridge arms it.
+}
+
+void C5xCore::load_program(const uint16_t *words, std::size_t count, uint16_t origin)
+{
+    if (count > 65536u - origin) throw std::out_of_range("program image exceeds C5x address space");
+    std::copy_n(words, count, m_program.begin() + origin);
+}
+
+void C5xCore::schedule_call_overlay(uint16_t origin, const uint16_t *words,
+    std::size_t count, uint16_t entry, const uint16_t *registers,
+    uint16_t selector)
+{
+    if (count > 65536u - origin)
+        throw std::out_of_range("program overlay exceeds C5x address space");
+    m_pending_overlay_origin = origin;
+    m_pending_overlay.assign(words, words + count);
+    std::copy_n(registers, m_pending_call_registers.size(),
+        m_pending_call_registers.begin());
+    m_pending_call_selector = selector;
+    m_line_frame_entry = entry;
+    m_ff.entry = entry >= 0;
+}
+
+void C5xCore::load_data(const uint16_t *words, std::size_t count, uint16_t origin)
+{
+    if (count > 65536u - origin) throw std::out_of_range("data image exceeds C5x address space");
+    std::copy_n(words, count, m_data.begin() + origin);
+}
+
+void C5xCore::load_rom(const uint16_t *words, std::size_t count, uint16_t origin)
+{
+    if (origin > m_rom_words || count > std::size_t(m_rom_words - origin))
+        throw std::out_of_range("boot ROM image exceeds the selected DSP's on-chip ROM");
+    std::copy_n(words, count, m_rom.begin() + origin);
+    m_rom_present = true;
+    invalidate_maps();
+}
+
+void C5xCore::set_shared_window(uint16_t first, uint16_t last)
+{
+    m_shared_first = first;
+    m_shared_last = last;
+    invalidate_maps();
+}
+
+void C5xCore::set_mpmc_pin(uint16_t level)
+{
+    m_mpmc_pin = level ? 1 : 0;
+    const unsigned modes = map_modes();
+    m_pmst.mpmc = m_mpmc_pin;
+    if (map_modes() != modes) invalidate_maps();
+}
+
+void C5xCore::set_io_callbacks(IoRead read, IoWrite write)
+{
+    m_io_read = std::move(read); m_io_write = std::move(write);
+}
+
+// The board's 40.320 MHz source reaches the C5x through the ASIC and the
+// external X2/CLKIN path. In divide-by-two mode the C50/51/52 would halve it
+// for CLKOUT1 (SPRU056D 9.2.1); the model assumes the PLL x1 strap instead,
+// which only CLKMD1/CLKMD2 can confirm. The 25 MHz this once carried was
+// chosen to reproduce a shipped constant of 3472 cycles, and it made every frame 24% longer in DSP
+// cycles than the board's - the sample rate is unaffected, since the clock
+// cancels out of MCLK / (2 x A x B), but the DSP got that much more compute
+// per sample than it has.
+static constexpr uint64_t BOARD_OSCILLATOR_HZ = 40'320'000;
+// The oscillator itself, not half of it. Unmeasured: at 20.16 MHz the V.34
+// answerer's 70-tap echo-canceller update alone (~2080 instructions a sample)
+// overruns the 1964-cycle sample budget, so no cost model lets that clock run
+// it. TCLKX (DSP pin 96, 5.04 vs 10.08 MHz) or CLKMD1/CLKMD2 would settle it.
+static constexpr uint64_t C5X_CLOCK_HZ = BOARD_OSCILLATOR_HZ;
+static constexpr uint16_t ASIC_CODEC_TIMING_BASE = 0x0078;
+
+void C5xCore::set_hybrid_return(uint32_t return_scale, uint32_t delay)
+{
+    m_hybrid_return = return_scale;
+    m_hybrid_delay = delay;
+    if (!return_scale) m_hybrid_line.clear();
+}
+
+void C5xCore::configure_digital_pcm(bool enabled, uint16_t idle_codeword,
+    uint32_t clock_hz)
+{
+    m_digital_pcm = enabled;
+    m_g711_idle = idle_codeword & 0xff;
+    // A DS0 presents exactly one octet every 125 us, counted in whatever
+    // clock the caller's board runs its C5x at.
+    m_line_frame_period = enabled ? unsigned(clock_hz / 8'000) : 258;
+    m_codec.tx_ready = true;
+}
+
+void C5xCore::queue_g711_rx(const uint8_t *codewords, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index)
+        m_g711_rx.push_back(codewords[index]);
+}
+
+void C5xCore::configure_rom_codec(bool enabled)
+{
+    m_si3034_codec = false;
+    m_event_deadline = 0;
+    m_rom_codec = enabled;
+    m_codec = Ac01{};
+    m_event_deadline = 0;
+    // Until the firmware programs the A and B registers the harness keeps the
+    // period it has always used. The datasheet's power-up A = B = 18 would put
+    // the part at 4444 Hz, which is a rate this board never runs at; nothing
+    // here knows what the ASIC clocks the port at before programming, so this
+    // stands in for it rather than claiming to model it.
+    m_line_frame_period = enabled
+        ? AC01_POWERUP_FRAME_PERIOD_CYCLES : TDM_FRAME_PERIOD_CYCLES;
+}
+
+void C5xCore::configure_si3034_codec()
+{
+    const uint32_t nominal_mclk = m_codec.nominal_mclk_hz;
+    m_rom_codec = true;
+    m_si3034_codec = true;
+    m_codec = Ac01{};
+    m_event_deadline = 0;
+    m_codec.nominal_mclk_hz = nominal_mclk;
+    m_codec.mclk_hz = nominal_mclk;
+    std::fill(std::begin(m_codec.registers), std::end(m_codec.registers), 0);
+    // Si3034 rev 2.02, serial mode 0/1 reset values, registers 1..19.
+    m_codec.registers[2] = 3;
+    m_codec.registers[6] = 0x70;
+    m_codec.registers[11] = 3;
+    // Board profile inference from DAA identity 0013: international line
+    // side, revision C (not a direct read of the serial revision register).
+    // The serial register places CBID at bit 6 and REVB at bits 5:2.
+    m_codec.registers[13] = 0x4c;
+    m_codec.registers[14] = 2;
+    m_codec.registers[16] = 8;
+    // Keep the existing pre-programming clock until the guest writes PLL2.
+    m_line_frame_period = AC01_POWERUP_FRAME_PERIOD_CYCLES;
+}
+
+void C5xCore::set_si3034_line(bool connected, bool off_hook, bool ringing)
+{
+    m_si_line_connected = connected;
+    m_si_off_hook = off_hook;
+    m_si_ringing = ringing;
+}
+
+void C5xCore::set_codec_mclk(uint32_t hz)
+{
+    m_codec.nominal_mclk_hz = hz;
+    m_codec.mclk_hz = hz;
+    if (m_codec.rate_programmed) codec_recompute_rate();
+}
+
+void C5xCore::codec_apply_asic_timing(uint16_t word)
+{
+    if (m_si3034_codec) return;
+    const uint16_t timing = word & 0x00ff;
+    // Word 2 of each firmware rate-table row. Relative to the 0x78 base,
+    // this models an ASIC-selected codec clock rather than a second PCM
+    // resampler in the bridge. At 0x90 with B=18, MCLK becomes 3.456 MHz and
+    // fs becomes 9.6 kHz: the measured 64-sample, 150-Hz V.34 probe rate.
+    switch (timing) {
+    case 0x78: case 0x82: case 0x85: case 0x8e: case 0x90: case 0x9a:
+        m_codec.mclk_hz = uint32_t(
+            uint64_t(m_codec.nominal_mclk_hz) * timing / ASIC_CODEC_TIMING_BASE);
+        if (m_codec.rate_programmed) codec_recompute_rate();
+        break;
+    default:
+        break;
+    }
+}
+
+// fs = MCLK / (2 x A x B), datasheet equations 11 and 20.
+void C5xCore::codec_recompute_rate()
+{
+    if (m_si3034_codec) {
+        // Si3034 5.21: Fs = MCLK*M1*M2/(N1*N2*5120).
+        // Register fields store divisor/multiplier minus one. CGM adds 16/25
+        // only when PLL2 is not bypassed (register 9 is nonzero).
+        uint64_t numerator = uint64_t(m_codec.mclk_hz)
+            * (m_codec.registers[8] + 1) * ((m_codec.registers[9] & 15) + 1);
+        uint64_t denominator = uint64_t(m_codec.registers[7] + 1)
+            * ((m_codec.registers[9] >> 4) + 1) * 5120;
+        if ((m_codec.registers[10] & 1) && m_codec.registers[9]) {
+            numerator *= 16;
+            denominator *= 25;
+        }
+        m_codec.sample_rate_millihz = numerator * 1000 / denominator;
+        m_codec.rate_programmed = true;
+        m_line_frame_period = unsigned(C5X_CLOCK_HZ * denominator / numerator);
+        return;
+    }
+    const uint64_t a = m_codec.registers[1], b = m_codec.registers[2];
+    if (!a || !b) return;  // an unusable divider leaves the last good rate
+    const uint64_t divisor = 2 * a * b;
+    m_codec.sample_rate_millihz = uint64_t(m_codec.mclk_hz) * 1000 / divisor;
+    m_codec.rate_programmed = true;
+    if (!m_rom_codec) return;
+    // Frame period in C5x cycles. With A = 10 and B = 20 this is 2800, which
+    // is 7200 Hz at the board's 20.16 MHz - the same rate the pre-programming
+    // stand-in above holds.
+    const unsigned period = unsigned(C5X_CLOCK_HZ * divisor / m_codec.mclk_hz);
+    if (period) m_line_frame_period = period;
+}
+
+// One secondary word: [DS15:14 control][DS13 R/W][DS12:8 address][DS7:0 data].
+void C5xCore::codec_apply_register(uint16_t word)
+{
+    m_codec.last_control_word = word;
+    ++m_codec.secondary_frames;
+    const unsigned address = (word >> 8) & 0x1f;
+    const bool read = (word >> 13) & 1;
+    if (address == 0 || address > (m_si3034_codec ? 20u : 8u)) return;
+    if (read) {
+        // Read mode returns the register in the low byte and writes nothing.
+        m_codec.readback = m_codec.registers[address] & 0xff;
+        if (m_si3034_codec && address == 5)
+            m_codec.readback = (m_codec.readback & 0x1b) | (m_si_ringing ? 0x64 : 0);
+        if (m_si3034_codec && address == 12) {
+            const bool linked = m_codec.rate_programmed && !(m_codec.registers[6] & 0x18);
+            const bool hook = (m_codec.registers[5] & 1)
+                || ((m_codec.registers[5] & 2) && m_si_off_hook);
+            // The modeled connected loop supplies 25 mA: four 6 mA steps.
+            m_codec.readback = linked ? uint16_t(0x40 | (m_si_line_connected && hook ? 4 : 0)) : 0;
+        }
+        m_codec.readback_armed = true;
+        ++m_codec.register_reads;
+        return;
+    }
+    if (m_si3034_codec) {
+        if (address == 11) return;
+        if (address == 3 || address == 4) return;
+        if (address == 12) {
+            m_codec.registers[12] &= (word & 0x80);
+            return;
+        }
+        if (address == 13) {
+            m_codec.registers[13] = (m_codec.registers[13] & 0xfc) | (word & 3);
+            ++m_codec.register_writes;
+            return;
+        }
+        if (address == 1 && (word & 0x80)) {
+            configure_si3034_codec();
+            return;
+        }
+        m_codec.registers[address] = word & 0xff;
+        if (address == 1) m_codec.registers[address] &= 3;
+        if (address == 2) m_codec.registers[address] &= 0x0b;
+        if (address == 5) m_codec.registers[address] &= 0x1b;
+        if (address == 10) m_codec.registers[address] &= 1;
+        ++m_codec.register_writes;
+        // PLL/CGM changes latch only when PLL2 is written (5.21.1).
+        if (address == 9) codec_recompute_rate();
+        return;
+    }
+    m_codec.registers[address] = word & 0xff;
+    ++m_codec.register_writes;
+    if (address == 1 || address == 2) codec_recompute_rate();
+    if (address == 6 && (word & 0x02)) {
+        // Software reset returns every register to its power-up value and
+        // clears itself.
+        const uint32_t nominal_mclk = m_codec.nominal_mclk_hz;
+        const uint32_t mclk = m_codec.mclk_hz;
+        m_codec = Ac01{};
+        m_event_deadline = 0;
+        m_codec.nominal_mclk_hz = nominal_mclk;
+        m_codec.mclk_hz = mclk;
+    }
+}
+
+// A word the DSP wrote to DXR. Which kind of frame it is was decided by the
+// previous frame's two control bits, not by where the write came from.
+void C5xCore::codec_transmit(uint16_t word)
+{
+    const bool secondary = m_codec.secondary_now
+        || (!m_si3034_codec && (m_codec.registers[6] & 0x04));
+    m_codec.secondary_now = false;
+    if (secondary) {
+        codec_apply_register(word);
+        // DS15:DS14 carry the same request encoding as a primary word.
+        m_codec.secondary_now = !m_si3034_codec && (word >> 14) == 3;
+        return;
+    }
+    ++m_codec.primary_frames;
+    const unsigned request = m_si3034_codec
+        ? ((word & 1) && !(m_codec.registers[1] & 1) ? 3 : 0)
+        : word & 3;
+    switch (request) {
+    case 3:
+        m_codec.secondary_now = true;
+        // Secondary FSYNC is halfway through the primary interval. Si3034
+        // decodes this request when DXR enters the shifter at primary FSYNC;
+        // the legacy AC01 path still decodes it on the DXR write.
+        m_codec.secondary_due = true;
+        m_codec.secondary_cycle = m_cycles + m_line_frame_period / 2;
+        m_event_deadline = 0;
+        break;
+    case 1: case 2: ++m_codec.phase_shifts; break;
+    default: break;
+    }
+    if (!m_rom_codec) return;
+    // The sample is the top 14 bits; the low two were never data. DXR loads
+    // the word the AC01 will use at the next primary conversion. The DAC is
+    // frame-clocked, not write-clocked: if the DSP does not replace this word
+    // before a later primary frame, the converter holds and emits it again.
+    m_codec.dac_sample = m_si3034_codec
+        ? uint16_t(word & (m_codec.registers[1] & 1 ? 0xffff : 0xfffe))
+        : ac01_output_sample(uint16_t(word & 0xfffc), m_codec.registers[4]);
+    m_codec.dac_pending = true;
+    m_line_tx_last_pc = uint16_t(m_pc - 1);
+}
+
+// Si3034 SCLK is 256 * Fs (section 5.22). FSYNC moves DXR to the
+// transmit shifter and raises XINT; RSR reaches DRR sixteen SCLKs later.
+// Consequently an XINT handler reads the preceding word, including a
+// secondary-register reply at the following primary FSYNC.
+void C5xCore::si3034_serial_frame(bool secondary)
+{
+    if (m_serial.spc & SPC_XRST) {
+        m_codec.secondary_now = secondary;
+        codec_transmit(m_serial.dxr);
+    }
+    const uint16_t previous = m_serial.drr;
+    const bool ready = m_codec.rx_ready;
+    codec_frame(secondary);
+    m_codec.receive_word = m_serial.drr;
+    m_serial.drr = previous;
+    m_codec.rx_ready = ready;
+    m_codec.receive_cycle = m_cycles + std::max(1u, m_line_frame_period / 16);
+    m_codec.receive_due = (m_serial.spc & SPC_RRST) != 0;
+    m_event_deadline = 0;
+    if (m_serial.spc & SPC_XRST) {
+        if (!m_st0.intm && (m_imr & (1u << IRQ_XINT)))
+            ++m_line_frame_interrupts;
+        interrupt(IRQ_XINT);
+    }
+}
+
+// One frame sync: the codec clocks a word each way, whether or not the DSP has
+// anything to say. This is the part of the model the harness did without - DRR
+// used to be filled lazily when the firmware happened to read it, so a run
+// whose receive queue was empty returned the same stale word every frame.
+void C5xCore::codec_frame(bool secondary)
+{
+    // Analog Courier: AC01 FS is also wired to DSP pin 40 / INT3.
+    // Latch independently of serial-port reset and interrupt masks. Defer
+    // recognition until the frame's serial events have also been latched.
+    // docs/board-verified-403.md, measured interrupt pin table.
+    if (!m_si3034_codec) m_ifr |= 1u << 2;
+    if (secondary) {
+        // Datasheet 2.4: during secondary communications DOUT carries the
+        // addressed register when a read was requested, and is otherwise zero.
+        // Either way no conversion result is delivered, so the ADC stream is
+        // one word per *primary* frame.
+        m_serial.drr = m_codec.readback_armed ? m_codec.readback : 0;
+        m_codec.readback_armed = false;
+        m_codec.rx_ready = true;
+        m_codec.tx_ready = true;
+        return;
+    }
+    // DIN is converted once per primary interval. DXR is only the loading
+    // mechanism; it is not the DAC clock. In particular, a secondary exchange
+    // or a missed DSP write does not delete time from the analog waveform --
+    // the converter continues to hold the most recent primary sample.
+    const bool si_link = !(m_codec.registers[6] & 0x18) && m_codec.rate_programmed;
+    uint16_t output = m_si3034_codec && !si_link ? 0 : m_codec.dac_sample;
+    if (m_si3034_codec) {
+        const unsigned attenuation = m_codec.registers[13] & 1
+            ? 1 : std::min(4u, unsigned((m_codec.registers[15] >> 4) & 7));
+        output = (m_codec.registers[15] & 0x80) ? 0
+            : uint16_t(int16_t(std::lround(int16_t(output) * std::pow(10.0, -3.0 * attenuation / 20))));
+    }
+    m_codec.dac_pending = false;
+    if (m_hybrid_return) {
+        m_hybrid_line.push_back(int16_t(output));
+        if (m_hybrid_line.size() > m_hybrid_delay + 64) m_hybrid_line.pop_front();
+    }
+    if (m_line_tx_clock_events.empty()
+        || m_line_tx_clock_events.back()[1] != m_line_frame_period)
+        m_line_tx_clock_events.push_back({m_line_tx.size(), m_line_frame_period});
+    m_line_tx.push_back(output);
+    if (output) ++m_line_tx_nonzero;
+    // The ADC converts whether or not the line is doing anything. An empty
+    // queue is silence on the line, which is a delivered zero, not a repeat.
+    int32_t analog = 0;
+    bool present = false;
+    if (m_codec_line_input) {
+        present = codec_line_sample(analog);
+        ++m_serial.rx_consumed;
+    } else if (!m_codec_rx.empty()) {
+        analog = int16_t(m_codec_rx.front());
+        m_codec_rx.pop_front();
+        ++m_serial.rx_consumed;
+        present = true;
+    }
+    if (!present) ++m_codec.rx_empty_frames;
+    // The hybrid's return sums with whatever the line brought in, at the
+    // analog input, so it goes through the input gain with it.
+    if (m_hybrid_return && m_hybrid_line.size() > m_hybrid_delay) {
+        const int32_t echo =
+            int32_t(m_hybrid_line.front()) * int32_t(m_hybrid_return) / 256;
+        analog += echo;
+        m_hybrid_line.pop_front();
+        ++m_hybrid_frames;
+        m_hybrid_peak = std::max<uint16_t>(m_hybrid_peak,
+            uint16_t(std::abs(int(echo))));
+        present = true;
+    }
+    uint16_t sample = 0;
+    if (present) {
+        if (m_si3034_codec) {
+            const unsigned gain = m_codec.registers[13] & 2
+                ? 2 : std::min(4u, unsigned(m_codec.registers[15] & 7));
+            analog = (m_codec.registers[15] & 8) ? 0
+                : int32_t(std::lround(analog * std::pow(10.0, 3.0 * gain / 20)));
+        }
+        if (analog > 32767) analog = 32767;
+        if (analog < -32768) analog = -32768;
+        sample = m_si3034_codec
+            ? (si_link && (m_codec.registers[2] & 1) ? uint16_t(int16_t(analog)) : 0)
+            : ac01_input_sample(uint16_t(int16_t(analog)), m_codec.registers[4]);
+        m_codec_rx_peak = std::max<uint16_t>(m_codec_rx_peak,
+            uint16_t(std::abs(int(int16_t(sample)))));
+    }
+    ++m_codec.frames_clocked;
+    m_codec.tx_ready = true;   // DXR has gone to the shift register
+    m_serial.drr = sample;
+    m_codec.rx_ready = true;
+    // Feed the same word to the V.8 tone detector the harness runs alongside
+    // the firmware, which previously only saw samples on the legacy TDM path.
+    m_v8_rx_window.push_back(int16_t(sample));
+    if (m_v8_rx_window.size() > 960) m_v8_rx_window.pop_front();
+}
+
+C5xCore::CodecState C5xCore::codec_state() const
+{
+    CodecState out{};
+    for (unsigned index = 0; index < 9; ++index)
+        out.registers[index] = m_codec.registers[index];
+    out.codec_rx_size = m_codec_line_input ? m_codec_line_rx.size() : m_codec_rx.size();
+    out.rx_empty_frames = m_codec.rx_empty_frames;
+    out.line_frame_next_cycle = m_line_frame_next_cycle;
+    out.cycles = m_cycles;
+    out.line_frame_irq = m_line_frame_irq;
+    out.mclk_hz = m_codec.mclk_hz;
+    out.sample_rate_millihz = m_codec.sample_rate_millihz;
+    out.frame_period = m_line_frame_period;
+    out.secondary_frames = m_codec.secondary_frames;
+    out.register_writes = m_codec.register_writes;
+    out.register_reads = m_codec.register_reads;
+    out.phase_shifts = m_codec.phase_shifts;
+    out.primary_frames = m_codec.primary_frames;
+    out.frames_clocked = m_codec.frames_clocked;
+    out.last_control_word = m_codec.last_control_word;
+    out.rate_programmed = m_codec.rate_programmed;
+    out.secondary_pending = m_codec.secondary_now;
+    out.force_secondary = (m_codec.registers[6] & 0x04) != 0;
+    out.free_run = (m_codec.registers[6] & 0x20) != 0;
+    out.sixteen_bit = (m_codec.registers[6] & 0x08) != 0;
+    out.high_pass_enabled = (m_codec.registers[5] & 0x04) == 0;
+    out.loopback = (m_codec.registers[5] & 0x03) == 0;
+    out.input_select = uint8_t(m_codec.registers[5] & 0x03);
+    out.monitor_gain = uint8_t((m_codec.registers[4] >> 4) & 3);
+    out.input_gain = uint8_t((m_codec.registers[4] >> 2) & 3);
+    out.output_gain = uint8_t(m_codec.registers[4] & 3);
+    return out;
+}
+
+void C5xCore::set_io(uint16_t port, uint16_t value)
+{
+    port = host_port(port);
+    m_io[port] = value;
+    if (m_rom_codec && port == 0x006b) codec_apply_asic_timing(value);
+}
+void C5xCore::queue_io_rx(uint16_t port, const uint16_t *words, std::size_t count)
+{
+    if (m_io_rx_port != port) {
+        m_io_rx.clear();
+        m_io_rx_port = port;
+    }
+    for (std::size_t index = 0; index < count; ++index) m_io_rx.push_back(words[index]);
+}
+void C5xCore::host_write(uint16_t address, uint16_t value)
+{
+    // NOT the board's protocol.  A real mailbox tag is a command index into
+    // the jump table at program word 8401, bounded at 7f, and only 27 of its
+    // handlers store the host's word - each at one fixed address.  See
+    // docs/dsp-rom-probe.md, "A repeatable host write".  This entry point is
+    // kept as a direct way to seed modelled state, and callers must not read
+    // it as evidence that a host can write an arbitrary data cell.
+    DM_WRITE16(address, value);
+}
+void C5xCore::queue_serial_rx(const uint16_t *samples, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index) m_line_rx.push_back(samples[index]);
+}
+static double codec_i0(double x)
+{
+    double total = 1, term = 1;
+    for (unsigned k = 1; term > 1e-12 * total; ++k) {
+        term *= (x / (2 * k)) * (x / (2 * k));
+        total += term;
+    }
+    return total;
+}
+
+void C5xCore::queue_line_rx(const uint16_t *samples, std::size_t count)
+{
+    if (!m_codec_line_input) {
+        m_codec_line_input = true;
+        // Prime once, in line samples. A codec retune must never insert a
+        // fresh cushion into an already continuous receive waveform.
+        m_codec_line_rx.insert(m_codec_line_rx.end(), 32, 0);
+    }
+    for (std::size_t k = 0; k < count; ++k)
+        m_codec_line_rx.push_back(samples[k]);
+}
+
+bool C5xCore::codec_line_sample(int32_t &sample)
+{
+    constexpr double pi = 3.14159265358979323846;
+    const double rate = double(C5X_CLOCK_HZ) / m_line_frame_period;
+    // Reconstruct the ideal exchange waveform through the lower Nyquist
+    // limit. An additional 2% cutoff reduction attenuates the upper PCM
+    // band before the client's equalizer and reduces the negotiated x2 rate.
+    const double cutoff = 0.5 * std::min(1.0, rate / 8000.0);
+    if (cutoff != m_codec_line_cutoff || m_codec_line_kernel.empty()) {
+        m_codec_line_cutoff = cutoff;
+        m_codec_line_kernel.resize(1025);
+        const double norm = codec_i0(8);
+        for (unsigned phase = 0; phase <= 1024; ++phase) {
+            double total = 0;
+            for (unsigned k = 0; k < 128; ++k) {
+                const double t = double(k) - 63 - double(phase) / 1024;
+                const double x = 2 * cutoff * t;
+                const double sinc = x == 0 ? 1 : std::sin(pi * x) / (pi * x);
+                const double ratio = t / 64;
+                const double window = std::abs(ratio) < 1
+                    ? codec_i0(8 * std::sqrt(1 - ratio * ratio)) / norm : 0;
+                total += (m_codec_line_kernel[phase][k] = 2 * cutoff * sinc * window);
+            }
+            for (double &tap : m_codec_line_kernel[phase]) tap /= total;
+        }
+    }
+    bool present = true;
+    const unsigned advance = unsigned(m_codec_line_position);
+    for (unsigned k = 0; k < advance; ++k) {
+        std::move(m_codec_line_history.begin() + 1, m_codec_line_history.end(),
+                  m_codec_line_history.begin());
+        if (m_codec_line_rx.empty()) {
+            m_codec_line_history.back() = 0;
+            present = false;
+        } else {
+            m_codec_line_history.back() = int16_t(m_codec_line_rx.front());
+            m_codec_line_rx.pop_front();
+        }
+    }
+    m_codec_line_position -= advance;
+    const unsigned phase = unsigned(std::round(m_codec_line_position * 1024));
+    double value = 0;
+    for (unsigned k = 0; k < 128; ++k)
+        value += m_codec_line_history[k] * m_codec_line_kernel[phase][k];
+    sample = int32_t(std::clamp(std::round(value), -32768.0, 32767.0));
+    m_codec_line_position += 8000.0 / rate;
+    return present;
+}
+
+void C5xCore::queue_codec_rx(const uint16_t *samples, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index) {
+        m_codec_rx.push_back(samples[index]);
+        m_codec_rx_peak = std::max<uint16_t>(m_codec_rx_peak,
+            uint16_t(std::abs(int16_t(samples[index]))));
+    }
+}
+void C5xCore::queue_codec_boot(const uint16_t *words, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index)
+        m_codec_boot.push_back(words[index]);
+}
+void C5xCore::set_v8_calling(bool enabled)
+{
+    m_v8_mode = enabled ? V8Mode::Calling : V8Mode::Off;
+}
+void C5xCore::set_v8_answering(bool enabled)
+{
+    m_v8_mode = enabled ? V8Mode::Answering : V8Mode::Off;
+}
+uint16_t C5xCore::io(uint16_t port) const { return m_io[host_port(port)]; }
+uint16_t C5xCore::io_output(uint16_t port) const
+{
+    port = host_port(port);
+    if (m_host_mailbox && port >= 0x5e && port <= 0x60)
+        return m_mailbox_output[port - 0x5e];
+    if ((m_rom_codec && port >= 0x50 && port <= 0x5f)
+        || (m_host_mailbox && port >= 0x58 && port <= 0x5d))
+        return m_asic_output[port - 0x50];
+    return (m_rom_codec || m_host_mailbox) && port >= 0x5e && port <= 0x60
+        ? m_mailbox_output[port - 0x5e] : m_io[port];
+}
+uint16_t C5xCore::program(uint16_t address) const
+{
+    // Inspect the mapped bus view without changing execution counters.
+    switch (program_region(address)) {
+    case Region::Rom: return m_rom_present ? m_rom[address] : m_program[address];
+    case Region::Saram: return m_saram[saram_data_address(address)];
+    case Region::Daram: return m_data[C5X_B0_FIRST + (address - C5X_B0_PROGRAM_FIRST)];
+    default: return m_program[address];
+    }
+}
+// These reach the same storage the running program does, so a cell staged
+// from the harness lands where the firmware's own read will find it. Without
+// the region check, a value seeded into the shared window would go to the data
+// array while the DSP read the program one - two arrays for one RAM.
+uint16_t C5xCore::data(uint16_t address) const
+{
+    const Region region = data_region(address);
+    if (region == Region::Saram) return m_saram[address - C5X_SARAM_DATA_FIRST];
+    if (region == Region::Global) return m_global_data[address];
+    return region == Region::Shared ? m_program[address] : m_data[address];
+}
+void C5xCore::set_data(uint16_t address, uint16_t value)
+{
+    const Region region = data_region(address);
+    if (region == Region::Saram) m_saram[address - C5X_SARAM_DATA_FIRST] = value;
+    else if (region == Region::Global) m_global_data[address] = value;
+    else if (region == Region::Shared) m_program[address] = value;
+    else m_data[address] = value;
+}
+
+uint16_t C5xCore::stack_entry(unsigned index) const
+{
+    return index < 8 ? m_pcstack[(m_pcstack_ptr + index) & 7] : 0;
+}
+
+uint16_t C5xCore::register_value(uint16_t offset) const
+{
+    switch (offset) {
+    case 0x04: return m_imr;
+    case 0x05: return uint16_t(0xff00 | m_greg);
+    case 0x06: return m_ifr;
+    case 0x07: return uint16_t((m_pmst.iptr << 11) | (m_pmst.avis << 7) |
+        (m_pmst.ovly << 5) | (m_pmst.ram << 4) | (m_pmst.mpmc << 3) |
+        (m_pmst.ndx << 2) | (m_pmst.trm << 1) | m_pmst.braf);
+    case 0x09: return uint16_t(m_brcr);
+    // PASR and PAER are memory-mapped beside BRCR (SPRU056D Table 4-2), and a
+    // task switch that saves 0x07..0x1e and restores it relies on them: MICA's
+    // worker scheduler preempts an FFT inside its RPTB block, another task
+    // runs its own RPTB, and without these the FFT resumed with the other
+    // loop's bounds, never met its own end, and ran its pointers through the
+    // scheduler's task blocks. PAER holds the block's last instruction; the
+    // core keeps the address after it.
+    case 0x0a: return m_pasr;
+    case 0x0b: return uint16_t(m_paer - 1);
+    // TREG1 is a 5-bit shift count and TREG2 a 4-bit bit pointer (SPRU056D
+    // 3.4); only those bits exist, so a read sees nothing above them.  A
+    // bit pump that steps TREG2 with `lamm @0e / sub #01 / samm @0e` and
+    // SXM clear - MICA's INFO CRC at 0x43A6 - relies on the -1 it stores
+    // reading back as 15; the full sixteen bits read back as 0xffff, the
+    // borrow never comes, and every word after the first is skipped.
+    case 0x0c: return m_treg0;
+    case 0x0d: return uint16_t(m_treg1 & 0x1f);
+    case 0x0e: return uint16_t(m_treg2 & 0x0f);
+    case 0x0f: return m_dbmr;
+    case 0x10: case 0x11: case 0x12: case 0x13:
+    case 0x14: case 0x15: case 0x16: case 0x17: return m_ar[offset - 0x10];
+    case 0x18: return m_indx; case 0x19: return m_arcr;
+    case 0x1a: return m_cbsr1; case 0x1b: return m_cber1;
+    case 0x1c: return m_cbsr2; case 0x1d: return m_cber2;
+    case 0x1e: return m_cbcr; case 0x1f: return m_bmar;
+    // DRR and TRCV read their held word without consuming it.
+    case 0x20: return m_serial.drr;
+    case 0x21: return m_serial.dxr;
+    case 0x22: return m_serial.spc;
+    case 0x24: const_cast<C5xCore *>(this)->sync_timer_view(); return m_timer.tim;
+    case 0x25: const_cast<C5xCore *>(this)->sync_timer_view(); return m_timer.prd;
+    case 0x26: const_cast<C5xCore *>(this)->sync_timer_view();
+        return uint16_t(((m_timer.psc & 0xf) << 6) |
+        (m_timer.tss ? 0x10 : 0) | (m_timer.tddr & 0xf));
+    case 0x28: return m_pdwsr;
+    case 0x29: return m_iowsr;
+    case 0x2a: return m_cwsr;
+    case 0x30: return m_tdm.trcv;
+    case 0x31: return m_tdm.tdxr;
+    case 0x32: return m_tdm.tspc;
+    case 0x33: return m_tdm.tcsr;
+    case 0x34: return m_tdm.trta;
+    case 0x35: return m_tdm.trad;
+    default: return m_data[offset];
+    }
+}
+
+C5xCore::MemoryMap C5xCore::memory_map() const
+{
+    m_map.mpmc_pin = m_mpmc_pin;
+    m_map.mpmc = m_pmst.mpmc;
+    m_map.ovly = m_pmst.ovly;
+    m_map.ram = m_pmst.ram;
+    m_map.cnf = m_st1.cnf;
+    m_map.iptr = m_pmst.iptr;
+    m_map.pdwsr = m_pdwsr;
+    m_map.iowsr = m_iowsr;
+    m_map.cwsr = m_cwsr;
+    m_map.rom_present = m_rom_present;
+    return m_map;
+}
+
+void C5xCore::consume_cycles(unsigned cycles)
+{
+    // SPRU056D 4.5.6 and 6-278: XC samples one full cycle early.
+    // A single-cycle predecessor has not yet supplied its new conditions;
+    // a multi-cycle predecessor has. Repeated micro-operations refresh the
+    // start snapshot after each cycle accounting call.
+    // Delayed transfers charge their own cycles after executing the slots.
+    // Those cycles occurred before the slots and must not replace the final
+    // slot's sample with the architectural state at the branch target.
+    if (!m_delay_condition_pending) {
+        const ConditionState current = condition_state();
+        m_xc_condition = cycles == 1 ? m_condition_start : current;
+        m_condition_start = current;
+    }
+    m_delay_condition_pending = false;
+    m_cycles += cycles;
+}
+
+C5xCore::Region C5xCore::program_region(uint16_t address) const
+{
+    // SPRU056D figures 8-2 and 8-4: model-specific ROM and SARAM windows.
+    // MP/MC removes ROM; RAM controls SARAM; CNF maps B0 at the top.
+    if (!m_pmst.mpmc && address < m_rom_words) return Region::Rom;
+    if (m_st1.cnf && address >= C5X_B0_PROGRAM_FIRST) return Region::Daram;
+    if (m_pmst.ram && address >= m_saram_program_first
+        && address < m_saram_program_first + m_saram_words)
+        return Region::Saram;
+    return Region::External;
+}
+
+// MAC and MACD, SPRU056D 6-150 and 6-155, with no wait states (p = d = 0,
+// which is all this core models). Repeated, the multiply retires one tap per
+// cycle behind a two-cycle pipeline start: n + 2. It costs a cycle per tap
+// more only when both operands queue for one bus - both off-chip, or both in
+// one SARAM block - or, for MACD, when the delay-line write lands in SARAM.
+// A single execution is n = 1 of the same formula, floored at 3.
+unsigned C5xCore::mac_cycles(uint16_t pma, uint16_t dma, unsigned count,
+                             bool data_move) const
+{
+    const Region op1 = program_region(pma), op2 = data_region(dma);
+    const bool op1_external = op1 == Region::External;
+    const bool op2_external = op2 != Region::Daram && op2 != Region::Registers
+                              && op2 != Region::Saram;
+    const unsigned n = count;
+    unsigned cycles;
+    if (op1_external && op2_external)
+        cycles = 2 * n + 2;
+    else if (op2 == Region::Saram && data_move)
+        cycles = 2 * n;
+    else if (op2 == Region::Saram && op1 == Region::Saram)
+        cycles = 2 * n + 2;
+    else
+        cycles = n + 2;
+    return cycles < 3 ? 3 : cycles;
+}
+
+// MADD/MADS have a one-word opcode and a one-cycle pipeline start, unlike
+// MAC/MACD's two-word opcode. SPRU056D 6-159/160 and 6-163/164 (zero waits).
+unsigned C5xCore::bmar_mac_cycles(uint16_t pma, uint16_t dma, unsigned n,
+                                  bool data_move) const
+{
+    const Region op1 = program_region(pma), op2 = data_region(dma);
+    const bool external1 = op1 == Region::External;
+    const bool external2 = op2 != Region::Daram && op2 != Region::Registers
+                            && op2 != Region::Saram;
+    const bool same_saram = op1 == Region::Saram && op2 == Region::Saram;
+    unsigned cycles;
+    if (external1 && external2) cycles = 2 * n + 1;
+    else if (op2 == Region::Saram && data_move)
+        cycles = (same_saram ? 3 * n : 2 * n) - 1;
+    else if (same_saram) cycles = 2 * n + 1;
+    else cycles = n + 1;
+    // A single MADD accessing both operands in SARAM takes three cycles;
+    // adding code in that same block takes four. Repeated data moves add
+    // two cycles when their delay line shares SARAM with the instruction.
+    if (n == 1 && same_saram && cycles < 3) cycles = 3;
+    if (data_move && op2 == Region::Saram
+        && program_region(uint16_t(m_pc - 1)) == Region::Saram) {
+        if (n > 1) cycles += 2;
+        else if (same_saram) ++cycles;
+    }
+    return cycles < 2 ? 2 : cycles;
+}
+
+C5xCore::Region C5xCore::data_region(uint16_t address) const
+{
+    if (address < 0x60) return Region::Registers;
+    if (address >= C5X_B2_FIRST && address < C5X_B2_FIRST + C5X_B2_WORDS)
+        return Region::Daram;
+    // B0 leaves data space for the top of program space when CNF is set, and
+    // what it leaves behind is reserved rather than off-chip. B1 stays put.
+    if (address >= C5X_B0_FIRST && address < C5X_B0_FIRST + C5X_B0_WORDS)
+        return m_st1.cnf ? Region::Reserved : Region::Daram;
+    if (address >= C5X_B1_FIRST && address < C5X_B1_FIRST + C5X_B1_WORDS)
+        return Region::Daram;
+    if (m_pmst.ovly && address >= C5X_SARAM_DATA_FIRST
+        && address < C5X_SARAM_DATA_FIRST + m_saram_words)
+        return Region::Saram;
+    // For the contiguous allocations in SPRU056D table 8-14, BR is asserted
+    // from GREG<<8 upward. Only boards decoding BR into a separate bank
+    // should select separate storage. Undocumented fragmented allocations
+    // are not modelled by this range decoder.
+    if (m_separate_global_memory && m_greg >= 0x80 && address >= (uint16_t(m_greg) << 8))
+        return Region::Global;
+    // The board's external RAM answers both spaces. See the shared-window
+    // constants in c5x_core.h.
+    if (address >= m_shared_first && address <= m_shared_last)
+        return Region::Shared;
+    // Without SARAM mapped, everything from 0x0800 up is off-chip and the two
+    // gaps below it are reserved.
+    if (address >= C5X_DATA_EXTERNAL_FIRST) return Region::External;  // 0x0800 up
+    return Region::Reserved;
+}
+
+// What an address is in program space and in data space, kept as a byte per
+// address so the access paths do not re-derive it from CNF, OVLY, RAM, MP/MC
+// and GREG every time. Whatever changes one of those calls invalidate_maps();
+// the next access rebuilds both tables.
+uint8_t C5xCore::program_kind(uint16_t address) const
+{
+    switch (program_region(address)) {
+    case Region::Rom: return m_rom_present ? 0 : 4;
+    case Region::Daram: return 1;
+    case Region::Saram: return 2;
+    default: return 3;
+    }
+}
+
+uint8_t C5xCore::data_kind(uint16_t address) const
+{
+    // Low three bits pick the m_map counter, the rest the storage.
+    switch (data_region(address)) {
+    case Region::Registers: return 0;
+    case Region::Daram: return 1;
+    case Region::Saram: return 2 | 1 << 3;
+    case Region::Reserved: return 3;
+    case Region::Shared: return 4 | 3 << 3;
+    case Region::Global: return 5 | 2 << 3;
+    default: return 5;
+    }
+}
+
+uint8_t C5xCore::data_map_entry(uint16_t address) const
+{
+    const uint8_t kind = data_kind(address);
+    // Bit 6: a plain cell in m_data that is not one of the CPU registers.
+    return address >= 0x60 && !(kind >> 3) && (kind & 7) ? kind | 0x40 : kind;
+}
+
+void C5xCore::rebuild_maps()
+{
+    // GREG only matters once it is a boundary the board decodes.
+    const MapKey key{map_modes(), m_separate_global_memory && m_greg >= 0x80 ? m_greg : 0u,
+        m_shared_first, m_shared_last, m_rom_present, m_separate_global_memory};
+    m_maps_dirty = false;
+    MapSet *set = nullptr;
+    for (const auto &candidate : m_map_sets)
+        if (candidate->key == key) { set = candidate.get(); break; }
+    if (!set) {
+        if (m_map_sets.size() < 16) {
+            m_map_sets.push_back(std::make_unique<MapSet>());
+            set = m_map_sets.back().get();
+        } else {
+            set = m_map_sets[m_map_victim].get();
+            m_map_victim = (m_map_victim + 1) % m_map_sets.size();
+        }
+        set->key = key;
+        for (uint32_t address = 0; address < 65536; ++address) {
+            set->program[address] = program_kind(uint16_t(address));
+            set->data[address] = data_map_entry(uint16_t(address));
+        }
+        ++m_map_rebuilds;
+    }
+    m_pmap = set->program.data();
+    m_dmap = set->data.data();
+}
+
+uint16_t C5xCore::fetch_slow(uint16_t address)
+{
+    if (__builtin_expect(m_maps_dirty, 0)) rebuild_maps();
+    const uint8_t kind = m_pmap[address];
+#ifdef C5X_CHECK_MAP
+    if (kind != program_kind(address)) std::abort();
+#endif
+    switch (kind) {
+    case 0: ++m_map.program_rom; return m_rom[address];
+    case 1: ++m_map.program_daram; return m_data[C5X_B0_FIRST + (address - C5X_B0_PROGRAM_FIRST)];
+    // SARAM is one memory in both spaces, so a fetch reads what data stores
+    // put there - which is how the firmware's own block moves get executed.
+    case 2: ++m_map.program_saram; return m_saram[saram_data_address(address)];
+    case 3: ++m_map.program_external; return m_program[address];
+    default:
+        // An XMF carries the program the supervisor downloads and nothing
+        // else, so with no ROM supplied this window has no contents. Falling
+        // back to the downloaded image is what this harness has always done;
+        // counting the fetches is what says how much of a run rests on it.
+        ++m_map.program_rom; ++m_map.rom_holes; return m_program[address];
+    }
+}
+
+inline __attribute__((always_inline)) uint16_t C5xCore::ROPCODE() { return fetch(m_pc++); }
+void C5xCore::CHANGE_PC(uint16_t new_pc) { m_pc = new_pc; }
+inline __attribute__((always_inline)) uint16_t C5xCore::PM_READ16(uint16_t address) { return fetch(address); }
+void C5xCore::PM_WRITE16(uint16_t address, uint16_t value)
+{
+    switch (program_region(address)) {
+    case Region::Rom:
+        // Mask ROM ignores guest writes, including TBLW and BLPD.
+        return;
+    case Region::Saram: m_saram[saram_data_address(address)] = value; return;
+    case Region::Daram: m_data[C5X_B0_FIRST + address - C5X_B0_PROGRAM_FIRST] = value; return;
+    default: break;
+    }
+    m_program[address] = value;
+}
+uint16_t C5xCore::dm_read_slow(uint16_t address)
+{
+    if (__builtin_expect(m_maps_dirty, 0)) rebuild_maps();
+    const uint8_t entry = m_dmap[address];
+#ifdef C5X_CHECK_MAP
+    if (entry != data_map_entry(address)) std::abort();
+#endif
+    const uint8_t kind = entry & 0x3f;
+    ++(&m_map.data_registers)[kind & 7];
+    uint16_t value;
+    if (kind == 1 || kind == 3 || kind == 5) value = m_data[address];
+    else if (address < 0x60) value = cpuregs_r(address);
+    else if (kind == (2 | 1 << 3)) value = m_saram[address - C5X_SARAM_DATA_FIRST];
+    else if (kind == (5 | 2 << 3)) value = m_global_data[address];
+    else value = m_program[address];
+    // The read side traces a fixed set of cells. A caller watching one cell
+    // wants only that cell, and these reads otherwise flood the buffer.
+    if (m_trace_data_writes && !m_trace_filtered &&
+        (address == 0x006f || address == 0x035c || address == 0x069c ||
+         address == 0x0b49 || address == 0x039f || address == 0x03c8 || address == 0x03ca)) {
+        if (m_data_events.size() >= m_data_event_limit) m_data_events.erase(m_data_events.begin());
+        m_data_events.push_back({address, value, static_cast<uint16_t>(m_pc - 1), m_instructions});
+    }
+    return value;
+}
+void C5xCore::dm_write_slow(uint16_t address, uint16_t value)
+{
+    ++m_data_write_counts[address];
+    if (m_trace_data_writes && (!m_trace_filtered || (address >= m_trace_filter && address <= m_trace_filter_last))
+        && !(m_trace_filtered && m_trace_changes_only && !m_data_events.empty()
+             && m_data_events.back().address == address && m_data_events.back().value == value)) {
+        if (m_data_events.size() >= m_data_event_limit) m_data_events.erase(m_data_events.begin());
+        m_data_events.push_back({address, value, static_cast<uint16_t>(m_pc - 1), m_instructions});
+    }
+    if (address < 0x60) cpuregs_w(address, value);
+    else {
+        if (__builtin_expect(m_maps_dirty, 0)) rebuild_maps();
+        switch ((m_dmap[address] >> 3) & 3) {
+        case 0: m_data[address] = value; break;
+        case 1: m_saram[address - C5X_SARAM_DATA_FIRST] = value; break;
+        case 2: m_global_data[address] = value; break;
+        default: m_program[address] = value; break;
+        }
+    }
+    // Which ASIC slot the line datapump's output word lands in. The ISR at
+    // 0x0228 keeps a 32-bit phase accumulator in @7c/@7d - 0xfffc/0xfffd at
+    // DP 0x1ff - and reading 0xfffd gives that phase, which is a linear ramp
+    // rather than a waveform. The word it computes from it goes out through
+    // @7a to 0xffff. Which of the two the board sinks is the question this
+    // makes measurable.
+    if (m_call_tdm_active && address == m_line_dac_slot) {
+        m_line_dac_sum += int16_t(value);
+        ++m_line_dac_count;
+        ++m_line_dac_writes;
+        std::vector<uint16_t> &phase = m_line_phase_tx[m_io[0x52] & 3];
+        if (phase.size() < 400000) phase.push_back(value);
+    }
+}
+
+uint16_t C5xCore::IO_READ16(uint16_t port)
+{
+    port = host_port(port);
+    // The resident idle path exposes its line ADC at external I/O port 0x54.
+    // main211 reads a frame at 0xb300 and rereads the held word at 0xb304.
+    if (port == 0x54 && uint16_t(m_pc - 1) == 0xb300 && !m_line_rx.empty()) {
+        m_io[port] = m_line_rx.front();
+        m_line_rx.pop_front();
+        ++m_line_rx_consumed;
+    }
+    uint16_t value;
+    if (port == m_io_rx_port && !m_io_rx.empty()) {
+        value = m_io_rx.front();
+        m_io_rx.pop_front();
+        m_io[port] = value;
+    } else {
+        value = m_io_read ? m_io_read(port) : m_io[port];
+    }
+    PortStat &stat = m_io_port_stats[port];
+    ++stat.reads;
+    stat.last_read = value;
+    stat.last_read_pc = static_cast<uint16_t>(m_pc - 1);
+    if (m_io_events.size() >= 8192) m_io_events.pop_front();
+    m_io_events.push_back({false, port, value, static_cast<uint16_t>(m_pc - 1), m_instructions});
+    return value;
+}
+
+void C5xCore::IO_WRITE16(uint16_t port, uint16_t value)
+{
+    port = host_port(port);
+    if ((m_rom_codec || m_host_mailbox) && port == 0x57)
+        // PA7 is an acknowledgement register, not ordinary port storage.
+        // The board leaves 0002 unchanged after writes of 0200, 0300 and 0000
+        // (artifacts/dsp-status-03). Assigning FFFF during resident init used
+        // to invent download-ready bit 9; with NDX working the firmware then
+        // consumed nonexistent download words indefinitely.
+        m_io[port] = (m_host_io_base == 0x8000 && value == 0xffff)
+            ? 0x0006 : m_io[port] & uint16_t(~value);
+    else if (m_host_mailbox && port == 0x56)
+        // The download-ready bitmap works the same way: the host sets bits
+        // via set_io when overlay data is available at 0x58-0x5b, and the
+        // DSP clears them by writing them back after consumption.
+        m_io[port] &= uint16_t(~value);
+    else if (m_host_mailbox && port >= 0x5e && port <= 0x60)
+        m_mailbox_output[port - 0x5e] = value;
+    else if (m_rom_codec && port == 0x60) {
+        // The stream sender's `out *, 0060` (0x849e): io_output serves the
+        // CPU's 0x60/0x62 from this holding register, which nothing wrote,
+        // so every streamed reply - ATI11's tag 57 among them - read zero.
+        m_mailbox_output[2] = value;
+        m_io[port] = value;
+    }
+    else if (m_rom_codec && port >= 0x50 && port <= 0x5f) {
+        m_asic_output[port - 0x50] = value;
+        // PA6 is the data lanes' handshake, and the resident clears a bit by
+        // writing it back (82de, 8332), as it does PA7's.
+        if (port == 0x56) m_io[port] &= uint16_t(~value);
+    }
+    else if (m_host_mailbox && port >= 0x58 && port <= 0x5d)
+        m_asic_output[port - 0x50] = value;
+    else m_io[port] = value;
+    if (m_rom_codec && port == 0x006b) codec_apply_asic_timing(value);
+    PortStat &stat = m_io_port_stats[port];
+    ++stat.writes;
+    stat.last_write = value;
+    stat.last_write_pc = static_cast<uint16_t>(m_pc - 1);
+    if (m_io_events.size() >= 8192) m_io_events.pop_front();
+    m_io_events.push_back({true, port, value, static_cast<uint16_t>(m_pc - 1), m_instructions});
+    // The tag, word and stream ports, kept apart from the general log so a
+    // call's worth of mailbox traffic survives the datapump's PCM.
+    if (port >= 0x5e && port <= 0x60) {
+        if (m_mailbox_events.size() >= 262144) m_mailbox_events.pop_front();  // PROBE: was 8192
+        m_mailbox_events.push_back(
+            {true, port, value, static_cast<uint16_t>(m_pc - 1), m_instructions});
+    }
+    // The downloaded firmware writes its ASIC line-DAC sink at b2e5. The older C51
+    // resident image uses external port 006a at high program addresses. The
+    // downloaded firmware's low-bank TDM ISR also writes 006a, but that is its control slot and
+    // must not be interleaved with line PCM.
+    uint16_t write_pc = uint16_t(m_pc - 1);
+    if (port == 0x006a && write_pc >= 0x8000) {
+        m_line_tx.push_back(value);
+        if (value) ++m_line_tx_nonzero;
+        m_line_tx_last_pc = write_pc;
+    }
+    if (m_io_write) m_io_write(port, value);
+}
+
+static uint16_t detect_v8_tones(const std::deque<int16_t> &samples)
+{
+    if (samples.size() < 960) return 0;
+    constexpr double pi = 3.14159265358979323846;
+    double c1300 = 0.0, s1300 = 0.0, c2100 = 0.0, s2100 = 0.0;
+    double total = 0.0;
+    int n = 0;
+    for (int16_t sample : samples) {
+        double x = sample;
+        double phase1300 = 2.0 * pi * 1300.0 * double(n) / 9600.0;
+        double phase2100 = 2.0 * pi * 2100.0 * double(n) / 9600.0;
+        c1300 += x * std::cos(phase1300);
+        s1300 += x * std::sin(phase1300);
+        c2100 += x * std::cos(phase2100);
+        s2100 += x * std::sin(phase2100);
+        total += x * x;
+        ++n;
+    }
+    if (total < 1.0) return 0;
+    // A single real-bin correlation is deliberately conservative: this is a
+    // DSP-side observation of V.8, not a supervisor/carrier shortcut.
+    uint16_t state = 0;
+    double limit = total * double(samples.size()) * 0.02;
+    if ((c1300 * c1300 + s1300 * s1300) > limit) state |= 1; // CI
+    if ((c2100 * c2100 + s2100 * s2100) > limit) state |= 2; // ANSam
+    return state;
+}
+
+uint16_t C5xCore::cpuregs_r(uint16_t offset)
+{
+    switch (offset) {
+    case 0x04: return m_imr;
+    case 0x05: return uint16_t(0xff00 | m_greg);
+    case 0x06: return m_ifr;
+    case 0x07: return uint16_t((m_pmst.iptr << 11) | (m_pmst.avis << 7) |
+        (m_pmst.ovly << 5) | (m_pmst.ram << 4) | (m_pmst.mpmc << 3) |
+        (m_pmst.ndx << 2) | (m_pmst.trm << 1) | m_pmst.braf);
+    case 0x09: return uint16_t(m_brcr);
+    // PASR and PAER are memory-mapped beside BRCR (SPRU056D Table 4-2), and a
+    // task switch that saves 0x07..0x1e and restores it relies on them: MICA's
+    // worker scheduler preempts an FFT inside its RPTB block, another task
+    // runs its own RPTB, and without these the FFT resumed with the other
+    // loop's bounds, never met its own end, and ran its pointers through the
+    // scheduler's task blocks. PAER holds the block's last instruction; the
+    // core keeps the address after it.
+    case 0x0a: return m_pasr;
+    case 0x0b: return uint16_t(m_paer - 1);
+    // TREG0 is memory-mapped at 0x0c, next to TREG1 and TREG2. Leaving it out
+    // splits it in two: LT and its relatives write the register while a read
+    // through the data space sees a cell nothing keeps up to date.
+    //
+    // TREG1, TREG2 and DBMR were exactly that split until this line: the write
+    // side below binds all four, the read side bound only TREG0. A bit pump
+    // that keeps its bit number in TREG2 and steps it with
+    // `lamm @0e / sub #01 / samm @0e` then reads zero every time, writes ffff
+    // back, and never reaches the count it is watching for - which is how the
+    // I-modem's HDLC receiver came to sit in one loop for a whole call.
+    case 0x0c: return m_treg0;
+    case 0x0d: return uint16_t(m_treg1 & 0x1f);
+    case 0x0e: return uint16_t(m_treg2 & 0x0f);
+    case 0x0f: return m_dbmr;
+    case 0x10: case 0x11: case 0x12: case 0x13:
+    case 0x14: case 0x15: case 0x16: case 0x17: return m_ar[offset - 0x10];
+    case 0x18: return m_indx; case 0x19: return m_arcr;
+    case 0x1a: return m_cbsr1; case 0x1b: return m_cber1;
+    case 0x1c: return m_cbsr2; case 0x1d: return m_cber2;
+    case 0x1e: return m_cbcr; case 0x1f: return m_bmar;
+    case 0x20:
+        ++m_serial.drr_reads; m_serial.last_drr_pc = uint16_t(m_pc - 1);
+        if (m_digital_pcm) {
+            // The I-modem serial word contains G.711 time slots, not AC01
+            // samples or register commands. Read the word latched by its
+            // digital frame clock, without analogue codec readback/FIFO work.
+            m_codec.rx_ready = false;
+            return m_serial.drr;
+        }
+        if (m_rom_codec) {
+            if (!m_codec_boot.empty()) {
+                // The ROM boot loader polling its table. This is the ASIC
+                // clocking words in, not a conversion result.
+                m_serial.drr = m_codec_boot.front();
+                m_codec_boot.pop_front();
+                ++m_serial.rx_consumed;
+                return m_serial.drr;
+            }
+            // The frame clock loaded this; reading it only clears RRDY.
+            m_codec.rx_ready = false;
+            return m_serial.drr;
+        }
+        if (m_codec.readback_armed) {
+            m_codec.readback_armed = false;
+            m_serial.drr = m_codec.readback;
+            return m_serial.drr;
+        }
+        if (!m_codec_rx.empty()) {
+            m_serial.drr = m_codec_rx.front(); m_codec_rx.pop_front();
+            ++m_serial.rx_consumed;
+        }
+        return m_serial.drr;
+    case 0x21: return m_serial.dxr;
+    case 0x22: {
+        // The control bits read back as written; the two status bits are
+        // answered from the port's actual state. A slave transmitter whose
+        // clock comes from the board is ready again as soon as the shifter
+        // has taken the word, so readiness follows XRST rather than a frame
+        // this core does not run.
+        uint16_t value = m_serial.spc & uint16_t(~(SPC_XRDY | SPC_RRDY));
+        // XRDY says DXR can accept another word, which becomes true when a
+        // frame sync moves the last one into the transmit shift register. It
+        // therefore follows the codec's frame clock rather than merely the
+        // transmitter being out of reset, which is what the reset handshake at
+        // program 0x8097 spins on.
+        // Only the AC01 path has a frame clock to set it. The legacy TDM path
+        // models no framing on this port, so nothing there would ever set XRDY
+        // again after a write and a firmware spin would never end; it keeps the
+        // optimistic answer it always had. That is a scoping decision about
+        // this model, not something the hardware does.
+        if (m_serial.spc & SPC_XRST) {
+            if (!m_rom_codec || m_codec.tx_ready) value |= SPC_XRDY;
+        }
+        // On the AC01 path a word is receivable once a frame sync has clocked
+        // one in, not merely because the harness has audio queued.
+        const bool ready = m_digital_pcm
+            ? m_codec.rx_ready
+            : m_rom_codec
+            ? (m_codec.rx_ready || !m_codec_boot.empty())
+            : !m_codec_rx.empty();
+        if ((m_serial.spc & SPC_RRST) && ready) value |= SPC_RRDY;
+        return value;
+    }
+    case 0x24: sync_timer_view(); return m_timer.tim;
+    case 0x25: sync_timer_view(); return m_timer.prd;
+    case 0x26: sync_timer_view();
+        return uint16_t(((m_timer.psc & 0xf) << 6) |
+        (m_timer.tss ? 0x10 : 0) | (m_timer.tddr & 0xf));
+    case 0x28: return m_pdwsr;
+    case 0x29: return m_iowsr;
+    case 0x2a: return m_cwsr;
+    case 0x37: return 0;
+    case 0x30:
+        ++m_tdm.trcv_reads; m_tdm.last_trcv_pc = uint16_t(m_pc - 1);
+        m_tdm_rx_ready = false;
+        return m_tdm.trcv;
+    case 0x31: return m_tdm.tdxr;
+    case 0x32: return m_tdm.tspc;
+    case 0x33: return m_tdm.tcsr;
+    case 0x34: return m_tdm.trta;
+    case 0x35: return m_tdm.trad;
+    default:
+        if (offset >= 0x50 && offset <= 0x5f) return IO_READ16(offset);
+        return m_data[offset];
+    }
+}
+
+void C5xCore::cpuregs_w(uint16_t offset, uint16_t value)
+{
+    if (int(offset) == m_trace_register && m_register_trace.size() < m_trace_capacity)
+        m_register_trace.push_back({m_cycles, uint16_t(m_pc - 1), value});
+    switch (offset) {
+    case 0x00: return;
+    case 0x05: if (m_greg != uint8_t(value)) invalidate_maps(); m_greg = uint8_t(value); return;
+    // The wait-state registers say which regions the firmware expects to be
+    // off-chip, which is worth recording even though this core runs every
+    // access in one cycle.
+    case 0x28: m_pdwsr = value; return;
+    case 0x29: m_iowsr = value; return;
+    case 0x2a: m_cwsr = value; return;
+    case 0x04: m_imr = value; return;
+    case 0x06: m_ifr &= ~value; return;
+    case 0x07: {
+        const unsigned modes = map_modes();
+        // SPRU056D Figure 4-3: IPTR is bits 15-11 (2K-word pages),
+        // AVIS is bit 7; bits 10-8 and 6 are reserved and read as zero.
+        m_pmst.iptr = (value >> 11) & 0x1f; m_pmst.avis = (value >> 7) & 1;
+        m_pmst.ovly = (value >> 5) & 1; m_pmst.ram = (value >> 4) & 1;
+        m_pmst.mpmc = (value >> 3) & 1; m_pmst.ndx = (value >> 2) & 1;
+        m_pmst.trm = (value >> 1) & 1; m_pmst.braf = value & 1;
+        if (map_modes() != modes) invalidate_maps();
+        return;
+    }
+    case 0x09: m_brcr = value; return;
+    case 0x0a: m_pasr = value; return;
+    case 0x0b: m_paer = uint16_t(value + 1); return;
+    case 0x0c: m_treg0 = value; return;
+    case 0x0d: m_treg1 = value; return; case 0x0e: m_treg2 = value; return;
+    case 0x0f: m_dbmr = value; return;
+    case 0x10: case 0x11: case 0x12: case 0x13:
+    case 0x14: case 0x15: case 0x16: case 0x17: m_ar[offset - 0x10] = value; return;
+    case 0x18: m_indx = value; return; case 0x19: m_arcr = value; return;
+    case 0x1a: m_cbsr1 = value; return; case 0x1b: m_cber1 = value; return;
+    case 0x1c: m_cbsr2 = value; return; case 0x1d: m_cber2 = value; return;
+    case 0x1e: m_cbcr = value; return; case 0x1f: m_bmar = value; return;
+    case 0x20: m_serial.drr = value; return;
+    case 0x21:
+        m_serial.dxr = value; ++m_serial.dxr_writes;
+        m_serial.last_dxr_pc = uint16_t(m_pc - 1);
+        m_codec.tx_ready = false;
+        // Whether this word is a sample or a control register is the codec's
+        // business, not the caller's: the previous frame's control bits decided
+        // it. This used to be two hardcoded ISR addresses, which recognised the
+        // samples of two known builds and no others.
+        // Raw digital octets can have the same bits as AC01 secondary-frame
+        // commands. Decoding them as codec control corrupts later DRR reads.
+        // An active Si3034 transmitter shifts this queued word at FSYNC.
+        // Direct register-control probes with the port in reset retain the
+        // synchronous API; they do not generate serial interrupts.
+        if (!m_digital_pcm && !(m_si3034_codec && m_line_frame_irq >= 0
+                && (m_serial.spc & SPC_XRST))) codec_transmit(value);
+        return;
+    case 0x22:
+        // A 0 -> 1 edge on XRST releases the transmitter with DXR empty.
+        if (!(m_serial.spc & SPC_XRST) && (value & SPC_XRST)) m_codec.tx_ready = true;
+        m_serial.spc = value; ++m_serial.spc_writes;
+        m_serial.last_spc_pc = uint16_t(m_pc - 1); return;
+    case 0x24: sync_timer_view(); m_event_deadline = 0; m_timer.tim = value; return;
+    case 0x25: sync_timer_view(); m_event_deadline = 0; m_timer.prd = value; return;
+    case 0x26:
+        sync_timer_view(); m_event_deadline = 0;
+        m_timer.tddr = value & 0xf; m_timer.psc = (value >> 6) & 0xf;
+        m_timer.tss = (value & 0x10) != 0;
+        if (value & 0x20) { m_timer.tim = m_timer.prd; m_timer.psc = m_timer.tddr; }
+        return;
+    case 0x30: m_tdm.trcv = value; return;
+    case 0x31:
+        m_tdm.tdxr = value; ++m_tdm.tdxr_writes;
+        m_tdm.last_tdxr_pc = uint16_t(m_pc - 1); return;
+    case 0x32:
+        m_tdm.tspc = value; ++m_tdm.tspc_writes;
+        m_tdm.last_tspc_pc = uint16_t(m_pc - 1); return;
+    case 0x33: m_tdm.tcsr = value; return;
+    case 0x34: m_tdm.trta = value; return;
+    case 0x35: m_tdm.trad = value; return;
+    default:
+        if (offset >= 0x50 && offset <= 0x5f) { IO_WRITE16(offset, value); return; }
+        m_data[offset] = value; return;
+    }
+}
+
+#define CYCLES(x) consume_cycles(x)
+
+#include "c5x_ops.ipp"
+#include "c5x_optable.ipp"
+
+#undef CYCLES
+
+void C5xCore::op_group_be() { s_opcode_table_be[m_op & 0xff](this); }
+void C5xCore::op_group_bf() { s_opcode_table_bf[m_op & 0xff](this); }
+
+void C5xCore::execute_opcode()
+{
+    m_condition_start = condition_state();
+    s_opcode_table[m_op >> 8].plain(this);
+}
+
+void C5xCore::delay_slot(uint16_t startpc)
+{
+    // CLRC INTM services interrupts inline. In a delay slot that pushed the
+    // return address and vectored, and then the enclosing delayed branch
+    // overwrote the PC - orphaning one stack entry per execution. The firmware
+    // guards every host-port access with `setc intm ; calld ... ; clrc intm`,
+    // so the stack drifted a level each time and a later RET returned into the
+    // middle of the routine with the wrong ARP.
+    const bool outer = m_in_delay_slot;
+    m_in_delay_slot = true;
+    m_op = ROPCODE(); execute_opcode();
+    while (uint16_t(m_pc - startpc) < 2) { m_op = ROPCODE(); execute_opcode(); }
+    m_in_delay_slot = outer;
+    m_delay_condition_pending = true;
+}
+
+void C5xCore::save_interrupt_context()
+{
+    m_shadow = {m_acc, m_accb, m_arcr, m_indx, m_pmst, m_preg, m_st0, m_st1,
+        m_treg0, m_treg1, m_treg2};
+}
+void C5xCore::restore_interrupt_context()
+{
+    m_acc = m_shadow.acc; m_accb = m_shadow.accb; m_arcr = m_shadow.arcr;
+    const unsigned modes = map_modes();
+    m_indx = m_shadow.indx; m_pmst = m_shadow.pmst; m_preg = m_shadow.preg;
+    m_st0 = m_shadow.st0; m_st1 = m_shadow.st1;
+    if (map_modes() != modes) invalidate_maps();
+    m_treg0 = m_shadow.treg0; m_treg1 = m_shadow.treg1; m_treg2 = m_shadow.treg2;
+    note_dp(4);
+}
+// Recognition, as opposed to latching. Called at every instruction boundary
+// from step(), because every way INTM or IMR can change has to be able to
+// release an already-latched flag: RETE clears INTM on its way out of a
+// handler, and the 2.x residents rewrite IMR at 0x10bc with INTM already
+// clear. Hanging this off interrupt() alone meant a flag that became eligible
+// without a fresh source edge waited for the next edge instead.
+bool C5xCore::check_interrupts()
+{
+    const uint16_t enabled = uint16_t(m_ifr & m_imr);
+    // A repeated instruction is not interruptible: RPTC and the repeat's
+    // source/destination pointers are not in the context shadow, so taking a
+    // vector out of the middle of one loses the rest of the block. check_nmi()
+    // has always refused for the same reason.
+    if (m_in_delay_slot || m_repeat_active || m_st0.intm || !enabled) return false;
+    for (unsigned irq = 0; irq < 16; ++irq) if (enabled & (1u << irq)) {
+        m_st0.intm = 1; PUSH_STACK(m_pc);
+        uint16_t vector = m_interrupt_vectors[irq];
+        m_pc = vector != 0xffff
+            ? vector
+            : uint16_t((m_pmst.iptr << 11) | ((irq + 1) << 1));
+        m_ifr &= ~(1u << irq); m_ff.idle = false; save_interrupt_context();
+        return true;
+    }
+    return false;
+}
+// Run the timer on by `elapsed` CLKOUT cycles and return how many times TIM
+// reached zero, reloading PSC from TDDR and TIM from PRD as it goes. This is
+// the tick-by-tick countdown worked out in closed form - it was a loop per
+// cycle, run after every instruction, and the costliest line in step(). The
+// caller raises TINT once per expiry, in order; nothing interrupt() does
+// reads the timer, so the final state can be set first.
+// SPRU056D 9.3.2: a counter that has decremented to zero generates its borrow
+// on the next CLKOUT cycle and reloads, so each counts through zero - PSC
+// borrows after PSC+1 cycles and then every TDDR+1, TIM expires after TIM+1
+// borrows and then every PRD+1. TINT rate = CLKOUT / ((TDDR+1) * (PRD+1)).
+uint64_t C5xCore::advance_timer(uint64_t elapsed)
+{
+    const uint64_t first = uint64_t(m_timer.psc) + 1;
+    if (elapsed < first) {
+        m_timer.psc -= int(elapsed);
+        return 0;
+    }
+    // A TDDR of zero is the usual setting, and avoids two 64-bit divisions
+    // on a path every retired instruction can reach.
+    const uint64_t period = uint64_t(m_timer.tddr) + 1;
+    const uint64_t decrements = period == 1 ? elapsed - first + 1
+        : 1 + (elapsed - first) / period;
+    m_timer.psc = m_timer.tddr - (period == 1 ? 0 : int((elapsed - first) % period));
+    const uint64_t to_zero = uint64_t(m_timer.tim) + 1;
+    if (decrements < to_zero) {
+        m_timer.tim = uint16_t(m_timer.tim - decrements);
+        return 0;
+    }
+    const uint64_t reload = uint64_t(m_timer.prd) + 1;
+    const uint64_t after = decrements - to_zero;
+    m_timer.tim = uint16_t(m_timer.prd - after % reload);
+    // Counted here rather than where TINT is raised: sync_timer_view runs the
+    // timer on too, and TOUT pulses whoever brought the count up to date.
+    m_timer_expiries += 1 + after / reload;
+    return 1 + after / reload;
+}
+
+void C5xCore::interrupt(unsigned irq)
+{
+    if (irq >= 16) throw std::out_of_range("C5x interrupt number");
+    // SPRU056D 4.8.2: the source sets IFR whether the interrupt is enabled or
+    // disabled. IMR and INTM govern recognition, not latching. An enabled
+    // source also wakes IDLE while INTM is set, leaving IFR pending.
+    m_ifr |= uint16_t(1u << irq);
+    if (m_imr & (1u << irq)) {
+        m_ff.idle = false;
+    }
+    check_interrupts();
+}
+
+void C5xCore::nmi()
+{
+    // The pin is asynchronous but the core completes its pipeline before
+    // taking the trap. Keep it pending until step() reaches an eligible
+    // instruction boundary instead of changing PC in the host callback.
+    m_ff.nmi_pending = true;
+    m_ff.idle = false;
+}
+
+bool C5xCore::check_nmi()
+{
+    if (
+        !m_ff.nmi_pending || m_in_delay_slot
+        || m_repeat_active || m_pmst.braf
+    ) return false;
+    m_ff.nmi_pending = false;
+    // NMI ignores IMR/INTM, but not IPTR: its slot is offset 0x24 inside the
+    // same relocatable vector table as every other vector (SPRU056D Figure
+    // 4-3), and the mask ROM's own table is only at 0x0024 because IPTR is
+    // zero out of reset. SPRU056D 4.8.6 explicitly says the key registers are
+    // not copied to the context shadow for NMI.
+    PUSH_STACK(m_pc);
+    m_st0.intm = 1;
+    m_pc = uint16_t((m_pmst.iptr << 11) | 0x0024);
+    m_ff.idle = false;
+    return true;
+}
+
+// One external frame edge raises both of the primary port's interrupts.
+//
+// Every Courier-family C5x resident programs this port the same way, and the
+// sequence settles what the model has to do. From the 403 resident at 0x8090
+// (identically 302 at 0x8090, 2.1.1 at 0x80bd and 2.3.31 at 0x109d):
+//
+//     lar  ar1, #22        ; SPC
+//     splk *,   #0008      ; both halves into reset, FSM on
+//     splk *,   #40c8      ; RRST and XRST released; MCM = 0, TXM = 0
+//     lacl #01 ; samm @21  ; prime DXR
+//     bit  11, *           ; spin on XRDY - wait for an *external* frame
+//     bcnd back, ntc
+//     samm @21             ; reload DXR
+//     lamm @06 ; samm @06  ; write-1-clear whatever latched during the spin
+//     lacl #2a ; samm @04  ; IMR = INT2 | TINT | XINT
+//     clrc intm
+//
+// MCM = 0 and TXM = 0 make the DSP a slave on this port: the AC01/ASIC owns
+// CLKX and FSX, so the frame edge is the model's to generate - that part was
+// already right. What was wrong is which interrupt the edge raises.
+//
+// IMR = 0x002a is bits 1, 3 and 5: INT2, TINT and **XINT**. RINT (bit 4) is
+// not enabled, and on the 403 and 302 residents IMR is never written again -
+// `samm @04` appears exactly once in each, at 0x809e. So the 403's frame
+// service runs on the *transmit* interrupt, and gating the edge on RRST, the
+// receiver's reset bit, was gating it on a register the 403 never consults.
+//
+// The 2.x server-side residents then show why picking one bit is wrong at all.
+// After enabling 0x002a they test data 0x012f and, when it is set, do
+//
+//     lamm @04 ; and #ffcf ; or #0010 ; samm @04
+//
+// which clears XINT and enables RINT instead - the same frame, the other
+// interrupt, chosen by configuration. A model that latches only one of the
+// two cannot run both variants.
+//
+// So latch both, each behind its own half of the port's reset, and leave
+// recognition to IMR and INTM where the part leaves it. `interrupt()` already
+// sets IFR whether or not the source is enabled (SPRU056D 4.8.2), so the
+// disabled one simply accumulates a flag the firmware clears, exactly as on
+// the board.
+void C5xCore::serial_frame_interrupt()
+{
+    if (m_line_frame_irq < 0) return;
+    // A half held in reset shifts nothing and therefore raises nothing.
+    const bool receive = (m_serial.spc & SPC_RRST) != 0;
+    const bool transmit = (m_serial.spc & SPC_XRST) != 0;
+    if (!receive && !transmit) {
+        // Counted rather than silent. A port left in reset shows up as a
+        // datapump that never gets a frame, and nothing else distinguishes
+        // that from a model whose frame clock simply stopped, so say which it
+        // was.
+        ++m_serial_frame_suppressed;
+        return;
+    }
+    // Counted where it is recognised rather than where it is latched: IFR is
+    // set either way, but this counter has always meant "taken", and it
+    // tracks whichever of the two the caller pointed the vector at.
+    if (!m_st0.intm && (m_imr & (1u << m_line_frame_irq))
+        && ((m_line_frame_irq == int(IRQ_RINT) && receive)
+            || (m_line_frame_irq == int(IRQ_XINT) && transmit)
+            || (m_line_frame_irq != int(IRQ_RINT)
+                && m_line_frame_irq != int(IRQ_XINT))))
+        ++m_line_frame_interrupts;
+    // RSR -> DRR first: RINT is the higher-priority vector of the pair, and
+    // check_interrupts() scans IFR in that order anyway.
+    if (receive) interrupt(IRQ_RINT);
+    if (transmit) interrupt(IRQ_XINT);
+    // A caller that named some other line (the TDM port's TRNT/TXNT, or an
+    // external INTn the board wires to the frame) still gets the edge it
+    // asked for; the two primary-port flags above are the port's own.
+    if (m_line_frame_irq != int(IRQ_RINT) && m_line_frame_irq != int(IRQ_XINT))
+        interrupt(unsigned(m_line_frame_irq));
+}
+
+void C5xCore::configure_line_frame_interrupt(unsigned irq, uint16_t vector)
+{
+    if (irq >= 16) throw std::out_of_range("C5x line-frame interrupt number");
+    m_line_frame_irq = int(irq);
+    m_interrupt_vectors[irq] = vector;
+    m_line_frame_next_cycle = m_cycles + m_line_frame_period;
+    m_event_deadline = 0;
+}
+
+// Everything step() does before the instruction that the common case has no
+// use for: a pending NMI or vector, IDLE, the scheduled overlay entry, the
+// block-repeat branch and the diagnostic probes. Returns true when the step
+// ended here (a vector was taken).
+bool C5xCore::step_front_rare()
+{
+    // Both checks refuse at once with nothing pending, which is nearly every
+    // step, so the calls are skipped then.
+    if (m_ff.nmi_pending) check_nmi();
+    // Taking a vector is this step's work: PC is left at the handler's first
+    // word for the next one, the way the part spends its own cycles getting
+    // there rather than fetching the handler in the same instruction slot.
+    if ((m_ifr & m_imr) && check_interrupts()) { consume_cycles(4); return true; }
+    if (m_ff.idle) consume_cycles(1);
+    else {
+        // The customer-ROM dispatcher publishes call state at the boundary
+        // immediately before the idle frame's ADC block. Waiting for this PC
+        // preserves the calling convention that overlapping entry 0x2295
+        // expects; entering on an arbitrary cycle corrupts IMR and stalls TDM.
+        if (
+            m_line_frame_entry >= 0 && !m_st0.intm && m_pc == 0xb2f6
+            && !(m_io[0x52] & 3)
+            && m_line_frame_next_cycle > m_cycles
+            && m_line_frame_next_cycle - m_cycles >= 128
+            && m_line_frame_next_cycle - m_cycles <= 192
+        ) {
+            if (!m_pending_overlay.empty()) {
+                std::copy(m_pending_overlay.begin(), m_pending_overlay.end(),
+                    m_program.begin() + m_pending_overlay_origin);
+                m_pending_overlay.clear();
+                std::fill(m_io.begin() + 0x50, m_io.begin() + 0x60, 0);
+                static constexpr uint16_t call_registers[] = {
+                    0x13, 0x15, 0x16, 0x19, 0x1a, 0x1b, 0x1f,
+                };
+                for (std::size_t index = 0; index < std::size(call_registers); ++index)
+                    DM_WRITE16(call_registers[index], m_pending_call_registers[index]);
+                m_data[0x006f] = m_pending_call_selector;
+                m_v8_callback_ready = false;
+                m_call_tdm_active = true;
+            }
+            CHANGE_PC(uint16_t(m_line_frame_entry));
+            m_line_frame_entry = -1;
+            m_ff.entry = false;
+        }
+        if (m_pmst.braf && m_pc == m_paer) {
+            if (m_brcr > 0) CHANGE_PC(m_pasr);
+            if (--m_brcr <= 0) m_pmst.braf = 0;
+        }
+        uint16_t previous_pc = m_pc;
+        if (m_step_probes && m_v8_dispatch_map[previous_pc]) {
+            ++m_v8_dispatches;
+            m_v8_dispatch_pc = previous_pc;
+            m_v8_record = uint16_t(m_acc);
+            // `@48`, `@4a` and `@4d` are direct operands, and a direct
+            // address on the C5x is (DP << 7) | offset. Reading m_data[0x48]
+            // asserts DP is zero, which this firmware's dispatcher does not
+            // guarantee - the ISR at 0x0228 alone runs at DP 0x1ff. Sampling
+            // the wrong page reported a null handler through every dispatch
+            // and made the state machine look like it was spinning on an
+            // unset vector, when the image has 57 sites that splk @48.
+            // m_st0.dp is held pre-shifted - LDP stores DP<<7 and
+            // GET_ADDRESS ORs it straight in - so the page IS m_st0.dp. This
+            // masked it with 0x1ff and shifted it left 7 again, which keeps
+            // only (DP & 3) << 7 and then shifts that into a page the
+            // dispatcher never runs on. Every handler, countdown and flag
+            // read here came back 0 for that reason, through 133,790
+            // dispatches on the answering end alone.
+            const uint16_t page = uint16_t(m_st0.dp & 0xff80);
+            m_v8_dispatch_dp = uint16_t(m_st0.dp >> 7);
+            m_v8_handler = m_data[uint16_t(page | 0x48)];
+            m_v8_countdown = m_data[uint16_t(page | 0x4a)];
+            m_v8_flags = m_data[uint16_t(page | 0x4d)];
+        }
+        bool negotiation_loop = m_step_probes && (previous_pc == 0xc7f7 ||
+            previous_pc == 0xc81a || previous_pc == 0xc853);
+        if (negotiation_loop && !m_negotiation_loop_active) {
+            m_negotiation_loop_active = true;
+            ++m_negotiation_loop_entries;
+            m_negotiation_loop_pc = previous_pc;
+            m_negotiation_source = m_ar[m_st0.arp];
+            m_negotiation_pair = m_ar[2];
+            m_negotiation_source_value = m_data[m_negotiation_source];
+            m_negotiation_pair_value = m_data[m_negotiation_pair];
+            m_negotiation_acc = m_acc;
+            m_negotiation_d76 = m_data[0x76]; m_negotiation_d77 = m_data[0x77];
+            m_negotiation_d78 = m_data[0x78]; m_negotiation_d79 = m_data[0x79];
+            m_negotiation_d26 = cpuregs_r(0x26); m_negotiation_indx = m_indx;
+            m_negotiation_arp = m_st0.arp; m_negotiation_pm = m_st1.pm;
+        }
+        m_op = ROPCODE();
+        if (m_coverage && !m_first_exec[previous_pc]) m_first_exec[previous_pc] = m_instructions + 1;
+        if (m_step_probes) {   // PROBE: first-ever execution of each PC after 1.6G instructions
+            uint8_t &seen = m_pc_seen[previous_pc];
+            if (!seen) {
+                seen = 1;
+                if (m_instructions > 1600000000ULL && m_pc_trace.size() < 65536)
+                    m_pc_trace.push_back((uint64_t(previous_pc) << 48) | (uint64_t(m_op) << 32) | 0xFEEDu);
+            }
+        }
+        if ((m_step_probes && previous_pc >= 0x0200 && previous_pc < 0x0300) ||
+            (previous_pc >= m_trace_first && previous_pc <= m_trace_last)) {
+            if (m_pc_trace.size() >= 4096) m_pc_trace.pop_front();
+            m_pc_trace.push_back((uint64_t(previous_pc) << 48) | (uint64_t(m_op) << 32) |
+                                 (previous_pc == m_trace_first  // PROBE: caller | acc
+                                  ? (uint32_t(m_pcstack[m_pcstack_ptr]) << 16 | uint32_t((m_cycles >> 8) & 0xffff))
+                                  : uint32_t(m_acc)));
+        }
+        if (!m_capture_addresses.empty() && previous_pc == m_capture_pc) {
+            std::vector<uint64_t> capture = {m_instructions, m_cycles,
+                uint32_t(m_acc), uint16_t(m_st0.dp >> 7), m_st1.c};
+            for (const uint16_t address : m_capture_addresses)
+                capture.push_back(address < 0x60 ? register_value(address) : data(address));
+            if (m_pc_captures.size() >= 64) m_pc_captures.pop_front();
+            m_pc_captures.push_back(std::move(capture));
+        }
+        execute_opcode();
+        if (negotiation_loop && m_pc != previous_pc) m_negotiation_loop_active = false;
+        if (m_repeat_active && previous_pc == m_rpt_end) {
+            if (m_rptc > 0) {
+                CHANGE_PC(m_rpt_start);
+                --m_rptc;
+            } else {
+                m_rptc = 0;
+                m_repeat_active = false;
+            }
+        }
+    }
+    return false;
+}
+
+// With none of the front flags up, only a vector that can be taken sends a
+// step to step_front_rare - and the loop edge of a block repeat, which is the
+// one rare step that is also the common one inside a RPTB body, so it is done
+// in step_begin: step_front_rare does exactly this, in this order, when there
+// is nothing else for it to do.
+inline __attribute__((always_inline)) bool C5xCore::step_is_rare() const
+{
+    uint32_t front;
+    std::memcpy(&front, &m_ff, sizeof front);
+    const bool pending = (m_ifr & m_imr) != 0;
+    const bool vector_due = pending & !m_st0.intm & !m_repeat_active;
+    return front | (m_pmst.braf ? pending : vector_due);
+}
+
+// The common step up to the dispatch.
+inline __attribute__((always_inline)) void C5xCore::step_begin()
+{
+    if (m_pmst.braf && m_pc == m_paer) {
+        if (m_brcr > 0) CHANGE_PC(m_pasr);
+        if (--m_brcr <= 0) m_pmst.braf = 0;
+    }
+    m_previous_pc = m_pc;
+    m_op = ROPCODE();
+    m_condition_start = condition_state();
+}
+
+// And after it.
+inline __attribute__((always_inline)) void C5xCore::step_repeat_edge()
+{
+    if (m_repeat_active && m_previous_pc == m_rpt_end) {
+        if (m_rptc > 0) {
+            CHANGE_PC(m_rpt_start);
+            --m_rptc;
+        } else {
+            m_rptc = 0;
+            m_repeat_active = false;
+        }
+    }
+}
+
+inline __attribute__((always_inline)) void C5xCore::step_retire()
+{
+    ++m_instructions;
+    // The on-chip timer counts CLKOUT, not retired instructions: a three-cycle
+    // instruction advances TIM by three. Ticking it once per instruction ran
+    // it slow by the average cycles-per-instruction, roughly 2.5x. Firmware
+    // that measures a hardware period against TIM sees the wrong answer - the
+    // MICA portware's frame-rate check at program 0x80cd reloads TIM from
+    // PRD, waits one serial frame and averages 256 readings, and rejected
+    // every clock rate because of this.
+    // It is only brought up to date when an expiry can be due (step_events), or
+    // when something reads or writes it (sync_timer_view); m_tail_cycle is the
+    // cycle those would see it at, which is where an eager timer would be.
+    m_tail_cycle = m_cycles;
+#ifdef C5X_CHECK_EVENTS
+    if (m_cycles < m_event_deadline && event_due())
+        std::abort();
+#endif
+    if (__builtin_expect(m_cycles >= m_event_deadline, 0)) {
+        step_events();
+        refresh_event_deadline();
+    }
+}
+
+void C5xCore::step() { step_inline(); }
+
+// The run loops below take this inline: one call per DSP instruction, and the
+// registers it spills, was a measurable part of the step.
+inline __attribute__((always_inline)) void C5xCore::step_inline()
+{
+    if (__builtin_expect(step_is_rare(), 0)) {
+        if (step_front_rare()) return;
+    } else {
+        step_begin();
+        s_opcode_table[m_op >> 8].plain(this);
+        step_repeat_edge();
+    }
+    step_retire();
+}
+
+// run_cycles' steps, threaded: each opcode's handler finishes its own step
+// and dispatches the next one itself, so every opcode has a dispatch branch of
+// its own to predict instead of all of them sharing the one in the loop. It
+// hands back to the loop for anything step_inline would not do on its fast
+// path, and wherever the loop would stop or look at IDLE.
+template <void (C5xCore::*F)()>
+void C5xCore::threaded(C5xCore *core)
+{
+    [[clang::always_inline]] (core->*F)();
+    core->step_repeat_edge();
+    core->step_retire();
+    if (core->m_cycles >= core->m_run_target
+        || (core->m_run_yield && core->m_g711_tx.size() != core->m_run_pcm_size)
+        || core->step_is_rare())
+        return;
+    core->step_begin();
+    [[clang::musttail]] return s_opcode_table[core->m_op >> 8].threaded(core);
+}
+
+// The frame-rate events: the codec's receive and secondary words and the
+// line frame. step() comes here only once one can be due.
+void C5xCore::step_events()
+{
+    {
+        const uint64_t elapsed = m_cycles - m_timer.serviced_cycle;
+        m_timer.serviced_cycle = m_cycles;
+        if (!m_timer.tss)
+            for (uint64_t expiry = advance_timer(elapsed); expiry; --expiry)
+                interrupt(IRQ_TINT);
+    }
+    // The ASIC is the TDM clock master. Its edge continues while the DSP is
+    // inside an overlay and no longer executing the idle DAC loop, so cadence
+    // must come from elapsed C5x cycles rather than from observing an OUT.
+    // The AC01's own frame sequence. A secondary frame sync arrives (B/2) FCLK
+    // periods after the primary that requested it (datasheet Figure 2-1, note),
+    // and since fs = FCLK/B that is exactly half a frame - so it is serviced
+    // ahead of the next primary rather than replacing it.
+    if (m_si3034_codec && m_codec.receive_due
+        && m_cycles >= m_codec.receive_cycle) {
+        m_codec.receive_due = false;
+        if (m_serial.spc & SPC_RRST) {
+            m_serial.drr = m_codec.receive_word;
+            m_codec.rx_ready = true;
+            interrupt(IRQ_RINT);
+        }
+    }
+    if (m_rom_codec && m_line_frame_irq >= 0 && m_codec.secondary_due
+        && m_cycles >= m_codec.secondary_cycle) {
+        m_codec.secondary_due = false;
+        if (m_si3034_codec && (m_serial.spc & (SPC_XRST | SPC_RRST)))
+            si3034_serial_frame(true);
+        else {
+            codec_frame(true);
+            serial_frame_interrupt();
+        }
+        return;
+    }
+    if (m_line_frame_irq >= 0 && m_cycles >= m_line_frame_next_cycle) {
+        do m_line_frame_next_cycle += m_line_frame_period;
+        while (m_cycles >= m_line_frame_next_cycle);
+        if (m_digital_pcm) {
+            // No linearisation or companding-law conversion belongs here: the
+            // octets are the time slots as they sit on the wire. How many of
+            // them a frame carries is SPC's to say, not this code's.
+            auto next_octet = [&]() -> uint16_t {
+                if (m_g711_rx.empty()) { ++m_g711_rx_underruns; return m_g711_idle; }
+                const uint16_t octet = m_g711_rx.front();
+                m_g711_rx.pop_front();
+                return octet;
+            };
+            if (m_serial.spc & SPC_FO) {
+                m_serial.drr = next_octet();
+                m_g711_tx.push_back(uint8_t(m_serial.dxr & 0xff));
+            } else {
+                // Sixteen-bit words, MSB first: the frame's first time slot
+                // is the high byte at both ends.
+                const uint16_t first = next_octet();
+                m_serial.drr = uint16_t((first << 8) | next_octet());
+                m_g711_tx.push_back(uint8_t(m_serial.dxr >> 8));
+                m_g711_tx.push_back(uint8_t(m_serial.dxr & 0xff));
+            }
+            m_codec.rx_ready = true;
+            m_codec.tx_ready = true;
+            serial_frame_interrupt();
+            return;
+        }
+        if (m_rom_codec) {
+            if (m_si3034_codec && (m_serial.spc & (SPC_XRST | SPC_RRST)))
+                si3034_serial_frame(false);
+            else {
+                codec_frame(false);
+                serial_frame_interrupt();
+            }
+            return;
+        }
+        // LAMM @52 at the ISR entry masks this ASIC word to two bits and
+        // indexes its four phase descriptors. Preserve any board status bits
+        // while advancing the slot number supplied by the frame master.
+        m_io[0x52] = uint16_t((m_io[0x52] & ~3u) | m_line_frame_phase);
+        m_line_frame_phase = uint16_t((m_line_frame_phase + 1) & 3);
+        // Convert the 25 MHz/258-cycle TDM slot stream to the 9.6 kHz line
+        // codec. The two most recent ADC words are held between boundaries.
+        m_line_sample_phase += m_line_frame_period * 9600u;
+        m_line_sample_due = m_line_sample_phase >= 25000000u;
+        if (m_line_sample_due) {
+            m_line_sample_phase -= 25000000u;
+            if (m_call_tdm_active) {
+                // The customer-ROM scheduler withholds the V.8 callback
+                // until the opposite bootstrap indicator has qualified. Once
+                // qualified it republishes the ready bit each codec slot.
+                if (m_v8_callback_ready) {
+                    m_data[0x039f] |= 0x0100;
+                } else if (m_v8_mode != V8Mode::Off) {
+                    m_data[0x039f] &= uint16_t(~0x0100);
+                }
+                if (!m_codec_rx.empty()) {
+                    // The ASIC's polyphase input holds the newest and previous
+                    // 9.6 kHz ADC words in the delay cells at 0xfff8/0xfff9.
+                    // Through DM_WRITE16 so the ADC pair is visible to the
+                    // same instrumentation as everything else the datapump
+                    // touches; whether the firmware's own reads track it is
+                    // the question, and it cannot be asked otherwise.
+                    DM_WRITE16(0xfff9, m_data[0xfff8]);
+                    DM_WRITE16(0xfff8, m_codec_rx.front());
+                    // The TDM receive register and the polyphase ADC latch
+                    // are two views of the same ASIC slot. Populate TRCV
+                    // before the frame ISR reads it; previously only the
+                    // native detector saw this sample.
+                    m_tdm.trcv = m_codec_rx.front();
+                    m_tdm_rx_ready = true;
+                    int16_t input = int16_t(m_codec_rx.front());
+                    m_codec_rx.pop_front();
+                    m_v8_rx_peak = std::max<uint16_t>(m_v8_rx_peak,
+                        uint16_t(std::abs(int(input))));
+                    ++m_serial.rx_consumed;
+                    m_v8_rx_window.push_back(input);
+                    if (m_v8_rx_window.size() > 960) m_v8_rx_window.pop_front();
+                    // Explicit legacy diagnostic mode only. In normal runs
+                    // the recovered program owns both result cells; neither
+                    // a C++ score nor a codec interrupt may overwrite them.
+                    uint16_t detected = m_v8_mode != V8Mode::Off
+                        ? detect_v8_tones(m_v8_rx_window) : 0;
+                    if (detected) {
+                        m_v8_rx_state |= detected;
+                        m_data[0x0306] = m_v8_rx_state;
+                        // Stop the native V.8 bootstrap tone once the peer's
+                        // opposite indicator is present. From this edge on,
+                        // the downloaded C5x overlay owns CM/JM and later
+                        // negotiation; keeping the bootstrap generator active
+                        // would mask the firmware's own DAC output.
+                        if ((m_v8_mode == V8Mode::Calling && (detected & 2)) ||
+                            (m_v8_mode == V8Mode::Answering && (detected & 1))) {
+                            m_v8_callback_ready = true;
+                            m_data[0x039f] |= 0x0100;
+                            m_v8_mode = V8Mode::Off;
+                            // BIO remains high during the call overlay. The
+                            // ISR's BIO-low conditional skips its NMI trap;
+                            // asserting it here strands the answer path.
+                        }
+                    }
+                }
+                // The line slot carries the datapump's own DAC accumulation
+                // and nothing else. Whatever V.8 the call needs is the C5x
+                // overlay's to emit.
+                if (m_line_dac_count) {
+                    ++m_line_dac_frames;
+                    int16_t sample = int16_t(
+                        m_line_dac_sum / int64_t(m_line_dac_count));
+                    m_line_tx.push_back(uint16_t(sample));
+                    if (sample) ++m_line_tx_nonzero;
+                    m_line_tx_last_pc = 0x0238;
+                    m_line_dac_sum = 0;
+                    m_line_dac_count = 0;
+                }
+            } else {
+                uint16_t sample = m_io[0xb2e5];
+                m_line_tx.push_back(sample);
+                if (sample) ++m_line_tx_nonzero;
+                m_line_tx_last_pc = 0x8c25;
+            }
+        }
+        serial_frame_interrupt();
+    }
+}
+
+bool C5xCore::event_due() const
+{
+    return (!m_timer.tss && m_tail_cycle - m_timer.serviced_cycle >= timer_distance())
+        || (m_si3034_codec && m_codec.receive_due && m_cycles >= m_codec.receive_cycle)
+        || (m_rom_codec && m_line_frame_irq >= 0 && m_codec.secondary_due
+            && m_cycles >= m_codec.secondary_cycle)
+        || (m_line_frame_irq >= 0 && m_cycles >= m_line_frame_next_cycle);
+}
+
+uint64_t C5xCore::timer_distance() const
+{
+    // advance_timer's closed form: PSC's first borrow, then TIM more of them.
+    return uint64_t(m_timer.psc) + 1
+        + uint64_t(m_timer.tim) * (uint64_t(m_timer.tddr) + 1);
+}
+
+// Bring the timer registers up to the cycle an eager timer would have reached.
+// No expiry can be pending: step_events delivers those the moment they fall due.
+void C5xCore::sync_timer_view()
+{
+    const uint64_t elapsed = m_tail_cycle - m_timer.serviced_cycle;
+    m_timer.serviced_cycle = m_tail_cycle;
+    if (!m_timer.tss && elapsed) advance_timer(elapsed);
+}
+
+// The earliest cycle at which event_due() can turn true. Whatever changes the
+// inputs to it sets m_event_deadline to zero, and the next step recomputes.
+void C5xCore::refresh_event_deadline()
+{
+    uint64_t deadline = UINT64_MAX;
+    // The first TINT.
+    if (!m_timer.tss)
+        deadline = m_timer.serviced_cycle + timer_distance();
+    if (m_si3034_codec && m_codec.receive_due)
+        deadline = std::min(deadline, m_codec.receive_cycle);
+    if (m_rom_codec && m_line_frame_irq >= 0 && m_codec.secondary_due)
+        deadline = std::min(deadline, m_codec.secondary_cycle);
+    if (m_line_frame_irq >= 0)
+        deadline = std::min(deadline, m_line_frame_next_cycle);
+    m_event_deadline = deadline;
+}
+
+void C5xCore::run(uint64_t instruction_limit)
+{
+    for (uint64_t i = 0; i < instruction_limit; ++i) step_inline();
+}
+
+void C5xCore::run_cycles(uint64_t cycle_limit, bool yield_on_pcm_frame)
+{
+    const uint64_t target = m_cycles + cycle_limit;
+    const std::size_t initial_pcm_size = m_g711_tx.size();
+    while (m_cycles < target) {
+        // IDLE stops instruction fetch while the clocks and peripherals keep
+        // running. Skip only cycles on which no modeled event can occur, then
+        // use the ordinary step() for the event boundary itself. This keeps
+        // timer, serial-frame and interrupt recognition in one implementation.
+        if (m_ff.idle && !m_ff.nmi_pending && !(m_ifr & m_imr)) {
+            sync_timer_view();
+            uint64_t distance = target - m_cycles;
+            if (!m_timer.tss)
+                distance = std::min(distance, timer_distance());
+            if (m_line_frame_irq >= 0 && m_line_frame_next_cycle > m_cycles)
+                distance = std::min(distance,
+                    m_line_frame_next_cycle - m_cycles);
+            if (m_rom_codec && m_codec.secondary_due
+                && m_codec.secondary_cycle > m_cycles)
+                distance = std::min(distance,
+                    m_codec.secondary_cycle - m_cycles);
+            if (m_si3034_codec && m_codec.receive_due
+                && m_codec.receive_cycle > m_cycles)
+                distance = std::min(distance, m_codec.receive_cycle - m_cycles);
+            if (distance > 1) {
+                const uint64_t skipped = distance - 1;
+                m_cycles += skipped;
+                // Preserve the core's historical accounting: an idle clock
+                // was represented as one retired idle step per cycle.
+                m_instructions += skipped;
+            }
+        }
+        if (__builtin_expect(step_is_rare(), 0))
+            step_inline();
+        else {
+            m_run_target = target;
+            m_run_yield = yield_on_pcm_frame;
+            m_run_pcm_size = initial_pcm_size;
+            step_begin();
+            s_opcode_table[m_op >> 8].threaded(this);
+        }
+        // The digital board's MUX exchange supplies the next receive word.
+        // Return each completed frame before clocking another one; otherwise
+        // a long host scheduler slice fabricates empty receive slots.
+        if (yield_on_pcm_frame && m_g711_tx.size() != initial_pcm_size)
+            break;
+    }
+}
+
+C5xCore::State C5xCore::state() const
+{
+    State result{m_pc, m_op, m_acc, m_accb, m_preg, m_treg0, m_treg1, m_treg2, {},
+        uint16_t(m_st0.dp >> 7), m_st0.arp, m_arcr, m_indx,
+        uint16_t((m_st0.intm << 7) | (m_st0.ovm << 6) | (m_st0.ov << 5) |
+                 (m_st1.sxm << 4) | (m_st1.c << 3) | (m_st1.tc << 2) |
+                 (m_st1.xf << 1) | m_st1.cnf),
+        m_ff.idle, m_instructions, m_cycles};
+    std::copy(std::begin(m_ar), std::end(m_ar), result.ar.begin());
+    return result;
+}
+
+C5xCore::SerialState C5xCore::serial_state() const
+{
+    return {m_serial.drr, m_serial.dxr, m_serial.spc,
+        m_serial.drr_reads, m_serial.dxr_writes, m_serial.spc_writes,
+        m_line_rx_consumed, m_line_rx.size(),
+        m_serial.rx_consumed, m_serial.rx_consumed + (m_codec_line_input
+            ? uint64_t(std::ceil(m_codec_line_rx.size() * double(C5X_CLOCK_HZ)
+                / m_line_frame_period / 8000.0)) : m_codec_rx.size()),
+        m_serial.last_drr_pc, m_serial.last_dxr_pc, m_serial.last_spc_pc,
+        m_tdm.trcv, m_tdm.tdxr, m_tdm.tspc,
+        m_tdm.trcv_reads, m_tdm.tdxr_writes, m_tdm.tspc_writes,
+        m_tdm.last_trcv_pc, m_tdm.last_tdxr_pc, m_tdm.last_tspc_pc,
+        m_line_tx.size(), m_line_tx_nonzero, m_line_frame_interrupts,
+        m_serial_frame_suppressed,
+        uint16_t(m_shadow.st0.dp >> 7),
+        m_last_dp_pc, m_last_dp_value, m_last_dp_source,
+        m_stray_cala_pc, m_stray_cala_target, m_stray_cala_dp,
+        m_line_dac_writes, m_line_dac_frames,
+        m_line_tx.empty() ? uint16_t(0) : m_line_tx.back(), m_line_tx_last_pc, m_imr,
+        m_v8_rx_state, m_v8_rx_peak, m_codec_rx_peak,
+        m_negotiation_loop_entries, m_negotiation_loop_pc, m_negotiation_source, m_negotiation_pair,
+        m_negotiation_source_value, m_negotiation_pair_value, m_negotiation_acc,
+        m_v8_dispatches, m_v8_record, m_v8_handler, m_v8_countdown, m_v8_flags,
+        m_v8_dispatch_pc, m_v8_dispatch_dp,
+        m_negotiation_d76, m_negotiation_d77, m_negotiation_d78, m_negotiation_d79,
+        m_negotiation_d26, m_negotiation_indx, m_negotiation_arp, m_negotiation_pm,
+        m_hybrid_frames, m_hybrid_peak};
+}
+
+} // namespace courier

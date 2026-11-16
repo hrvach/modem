@@ -1,6 +1,6 @@
 """ctypes wrapper for libi186.so"""
 import ctypes as C, os
-_l = C.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), "libi186.so"))
+_l = C.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.environ.get("I186_LIB", "libi186.so")))   # I186_LIB=libi186_fixed.so selects the alternative core
 IORD = C.CFUNCTYPE(C.c_uint32, C.c_void_p, C.c_uint16, C.c_int)
 IOWR = C.CFUNCTYPE(None, C.c_void_p, C.c_uint16, C.c_int, C.c_uint32)
 MMRD = C.CFUNCTYPE(C.c_uint32, C.c_void_p, C.c_uint32, C.c_int)
@@ -22,7 +22,7 @@ _l.i186_irq.argtypes = [C.c_void_p, C.c_int]
 _l.i186_stop.argtypes = [C.c_void_p]
 _l.i186_irq_clear.argtypes = [C.c_void_p]
 _l.i186_irq_pending.restype = C.c_int; _l.i186_irq_pending.argtypes = [C.c_void_p]
-_l.i186_set_cycle_model.argtypes = [C.c_void_p, C.c_int]
+_l.i186_set_cycle_model.argtypes = [C.c_void_p, C.c_int]; _l.i186_set_cycle_scale.argtypes = [C.c_void_p, C.c_double]; _l.i186_set_ud_trap.argtypes = [C.c_void_p, C.c_int]
 _l.i186_cycles.restype = C.c_uint64; _l.i186_cycles.argtypes = [C.c_void_p]
 _l.i186_add_cycles.argtypes = [C.c_void_p, C.c_uint64]
 _l.i186_get_badop.restype = C.c_uint32; _l.i186_get_badop.argtypes = [C.c_void_p]
@@ -45,7 +45,9 @@ class CPU:
     def irq(self, vec): _l.i186_irq(self.h, vec)
     def irq_clear(self): _l.i186_irq_clear(self.h)
     def irq_pending(self): return _l.i186_irq_pending(self.h)
+    def ud_trap(self, m): _l.i186_set_ud_trap(self.h, m)
     def cycle_model(self, m): _l.i186_set_cycle_model(self.h, m)
+    def cycle_scale(self, f): _l.i186_set_cycle_scale(self.h, float(f))
     def stop(self): _l.i186_stop(self.h)
     @property
     def cycles(self): return _l.i186_cycles(self.h)
