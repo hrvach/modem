@@ -20,7 +20,7 @@
 # Never patch the firmware; never upload/publish the XMD, the decoded
 # flash, or audio anywhere. Local files only.
 CC      ?= gcc
-CFLAGS  ?= -O2 -Wall -Wextra -std=gnu11
+CFLAGS  ?= -O3 -march=native -Wall -Wextra -std=gnu11
 CPPFLAGS ?= -Isrc/glue -Isrc/dsp -Isrc/cpu
 LDFLAGS ?=
 LDLIBS  ?= -lm
@@ -33,7 +33,16 @@ GLUE_SRC = src/glue/machine.c src/glue/link.c src/glue/line.c \
            src/glue/resamp.c src/glue/config.c src/glue/wav.c src/glue/main.c
 GLUE_OBJ = $(GLUE_SRC:.c=.o)
 
-.PHONY: all fw run test clean
+.PHONY: all fw run test test-dsp-wat clean
+
+# Differential test of the WAT DSP core against the C core.  Needs a WAT
+# assembler; emsdk's binaryen wasm-as works: make test-dsp-wat WASM_AS=...
+WASM_AS ?= /home/hrvoje/emsdk/upstream/bin/wasm-as
+test-dsp-wat:
+	@mkdir -p bin lib
+	$(CC) -O2 -std=gnu11 -o bin/dsp_wat_diff tests/dsp_wat_diff.c $(LDLIBS)
+	$(WASM_AS) src/dsp/c5x_core.wat -o lib/c5x_core.wasm
+	./bin/dsp_wat_diff 200000 | node tests/dsp_wat_diff.js lib/c5x_core.wasm
 
 all: lib/libc5x.a lib/libi186.a bin/courier-call
 
@@ -76,12 +85,14 @@ test: all
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o tests/test_resamp tests/test_resamp.c src/glue/resamp.c $(LDLIBS)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o tests/test_config tests/test_config.c src/glue/config.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o tests/test_line tests/test_line.c src/glue/line.c $(LDLIBS)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o bin/dsp_core_smoke tests/dsp_core_smoke.c lib/libc5x.a
 	./tests/test_resamp
 	./tests/test_config
 	./tests/test_line
+	./bin/dsp_core_smoke
 	./bin/courier-call --help
 
 clean:
 	rm -f $(GLUE_OBJ) $(GLUE_OBJ:.o=.d) src/dsp/c5x_core.o src/cpu/i186.o
 	rm -f lib/libc5x.a lib/libi186.a bin/courier-call
-	rm -f tests/test_resamp tests/test_config tests/test_line
+	rm -f tests/test_resamp tests/test_config tests/test_line bin/dsp_core_smoke bin/dsp_wat_diff

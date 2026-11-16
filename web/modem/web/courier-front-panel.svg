@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 340" width="1400" height="340" role="img" aria-labelledby="title desc">
+  <title id="title">U.S. Robotics Courier V.Everything — front panel</title>
+  <desc id="desc">Front elevation of the Courier V.Everything external modem. Black case, silver U.S.Robotics badge, long red LED window with 12 indicators (HS, AA, CD, OH, RD, SD, TR, MR, RS, CS, SYN, ARQ/FAX), VOICE/DATA button, and COURIER / V.EVERYTHING branding. MR and CS shown lit, the powered-on idle state from the manual.</desc>
+  <defs>
+    <linearGradient id="caseGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#333333"/>
+      <stop offset="0.12" stop-color="#262626"/>
+      <stop offset="1" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="badgeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8e8e8"/>
+      <stop offset="0.5" stop-color="#c2c2c2"/>
+      <stop offset="1" stop-color="#9a9a9a"/>
+    </linearGradient>
+    <linearGradient id="panelGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141414"/>
+      <stop offset="1" stop-color="#070707"/>
+    </linearGradient>
+    <linearGradient id="ledOff" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7d1212"/>
+      <stop offset="1" stop-color="#4a0808"/>
+    </linearGradient>
+    <linearGradient id="ledOn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff7a66"/>
+      <stop offset="0.45" stop-color="#ff2a18"/>
+      <stop offset="1" stop-color="#d40000"/>
+    </linearGradient>
+    <linearGradient id="btnGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a5a5a"/>
+      <stop offset="0.5" stop-color="#3a3a3a"/>
+      <stop offset="1" stop-color="#222222"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- outer case -->
+  <rect x="8" y="8" width="1384" height="324" rx="14" fill="url(#caseGrad)" stroke="#4a4a4a" stroke-width="1.5"/>
+  <rect x="14" y="14" width="1372" height="10" rx="5" fill="#ffffff" opacity="0.05"/>
+
+  <!-- U.S.Robotics badge, centred on the top bezel -->
+  <rect x="580" y="28" width="240" height="42" rx="4" fill="url(#badgeGrad)" stroke="#6f6f6f" stroke-width="1"/>
+  <text x="700" y="58" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="800" fill="#111111" letter-spacing="-0.5">U.S.Robotics</text>
+
+  <!-- front panel inset -->
+  <rect x="28" y="96" width="1344" height="216" rx="8" fill="url(#panelGrad)" stroke="#333333" stroke-width="2"/>
+  <rect x="32" y="100" width="1336" height="208" rx="6" fill="none" stroke="#000000" stroke-width="1" opacity="0.6"/>
+
+  <!-- top row: 56 Kbps Technology + dotted red rule -->
+  <text x="48" y="133" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="600" fill="#e8e8e8">56 Kbps Technology</text>
+  <line x1="238" y1="127" x2="1352" y2="127" stroke="#c81e1e" stroke-width="3" stroke-dasharray="1 7" stroke-linecap="round"/>
+
+  <!-- LED window -->
+  <rect x="150" y="148" width="860" height="66" rx="3" fill="#2e0202" stroke="#1a0000" stroke-width="1.5"/>
+  <!-- 12 segments, 71.67 px pitch. Lit: MR (index 7) and CS (index 9) — powered-on idle per manual -->
+  <g>
+    <rect x="154" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="226" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="297" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="369" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="441" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="512" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="584" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="656" y="152" width="64" height="58" rx="2" fill="url(#ledOn)" filter="url(#glow)"/>
+    <rect x="727" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="799" y="152" width="64" height="58" rx="2" fill="url(#ledOn)" filter="url(#glow)"/>
+    <rect x="871" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+    <rect x="942" y="152" width="64" height="58" rx="2" fill="url(#ledOff)"/>
+  </g>
+  <!-- segment dividers -->
+  <g stroke="#240000" stroke-width="1.5">
+    <line x1="222" y1="152" x2="222" y2="210"/><line x1="293" y1="152" x2="293" y2="210"/>
+    <line x1="365" y1="152" x2="365" y2="210"/><line x1="437" y1="152" x2="437" y2="210"/>
+    <line x1="508" y1="152" x2="508" y2="210"/><line x1="580" y1="152" x2="580" y2="210"/>
+    <line x1="652" y1="152" x2="652" y2="210"/><line x1="723" y1="152" x2="723" y2="210"/>
+    <line x1="795" y1="152" x2="795" y2="210"/><line x1="867" y1="152" x2="867" y2="210"/>
+    <line x1="938" y1="152" x2="938" y2="210"/>
+  </g>
+  <rect x="150" y="148" width="860" height="12" rx="3" fill="#ffffff" opacity="0.05"/>
+
+  <!-- LED labels -->
+  <g font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#dddddd" text-anchor="middle">
+    <text x="186" y="242">HS</text>
+    <text x="258" y="242">AA</text>
+    <text x="329" y="242">CD</text>
+    <text x="401" y="242">OH</text>
+    <text x="473" y="242">RD</text>
+    <text x="544" y="242">SD</text>
+    <text x="616" y="242">TR</text>
+    <text x="688" y="242">MR</text>
+    <text x="759" y="242">RS</text>
+    <text x="831" y="242">CS</text>
+    <text x="903" y="242">SYN</text>
+    <text x="974" y="234">ARQ/</text>
+    <text x="974" y="256">FAX</text>
+  </g>
+
+  <!-- VOICE/DATA button -->
+  <rect x="1052" y="148" width="112" height="66" rx="8" fill="url(#btnGrad)" stroke="#5c5c5c" stroke-width="1.5"/>
+  <rect x="1058" y="153" width="100" height="10" rx="5" fill="#ffffff" opacity="0.08"/>
+  <text x="1108" y="242" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#dddddd" letter-spacing="1">VOICE/DATA</text>
+
+  <!-- COURIER / V.EVERYTHING -->
+  <text x="1198" y="206" font-family="'Arial Narrow', Arial, Helvetica, sans-serif" font-size="46" font-weight="800" fill="#f2f2f2" textLength="152" lengthAdjust="spacingAndGlyphs">COURIER</text>
+  <text x="1352" y="176" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#dddddd">™</text>
+  <text x="1198" y="240" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#d92121" letter-spacing="1.5">V.EVERYTHING</text>
+</svg>

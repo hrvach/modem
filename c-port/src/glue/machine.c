@@ -28,8 +28,10 @@ static const char *dsp_cmd_note(int cmd, int arg)
     static char buf[96];
     const char *c = "unknown command", *a = "unknown argument";
     switch (cmd) {
-    case 0x01: c = "boot-ROM/app start request";
-               if (arg == 0x3F) a = "0x3F = ask for the 'started' reply"; break;
+    case 0x01:
+        c = "boot-ROM/app start request";
+        if (arg == 0x3F) a = "0x3F = ask for the 'started' reply";
+        break;
     case 0x02: c = "overlay select"; a = "overlay DSP address (low byte shown)"; break;
     case 0x20: c = "B starts its modem mode"; break;
     case 0x21: c = "A starts its carrier"; break;

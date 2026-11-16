@@ -268,7 +268,6 @@ int main(int argc, char **argv)
     }
 
     int64_t target_samples = (int64_t)(cfg.duration_seconds * LINK_FS);
-    int64_t last_sent = -1;
     while (link_samples(l) < target_samples) {
         link_run(l, 10000000);
         if (payload && !payload_sent && l->txt_b_n &&
@@ -276,17 +275,18 @@ int main(int argc, char **argv)
             /* Caller (B) payload, once B reports CONNECT. */
             link_send(l, 1, payload, payload_len);
             payload_sent = 1;
-            last_sent = link_samples(l);
         }
         if (payload_a && !payload_a_sent && l->txt_a_n &&
             memmem(l->txt_a, l->txt_a_n, "CONNECT", 7)) {
             /* Answerer (A) payload, once A reports CONNECT. */
             link_send(l, 0, payload_a, payload_a_n);
             payload_a_sent = 1;
-            last_sent = link_samples(l);
         }
-        /* Exit 3 s after the last payload has been sent. */
-        if (last_sent >= 0 && link_samples(l) >= last_sent + 3 * LINK_FS) break;
+        /* Stop as soon as each side has the other side's message. */
+        if (payload_sent && payload_a_sent &&
+            memmem(l->txt_a, l->txt_a_n, cfg.send_text, strlen(cfg.send_text)) &&
+            memmem(l->txt_b, l->txt_b_n, cfg.send_text_a, strlen(cfg.send_text_a)))
+            break;
     }
     free(payload_a);
     free(payload);

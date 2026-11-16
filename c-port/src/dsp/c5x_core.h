@@ -5,13 +5,8 @@
  * callers only ever hold a C5x pointer, plus the flat memory / log / ring
  * views returned by the c5x_* accessors below.
  *
- * Compatibility: this header is a superset of the provisional header that
- * previously lived here.  Every name that header declared (C5xIoEv,
- * c5x_io_rd_fn / c5x_io_wr_fn, C5X_PC .. C5X_SETIDLE, C5X_RUN_OK ..,
- * all c5x_* prototypes) is kept verbatim, so existing glue keeps
- * compiling.  Added alongside are the aliases the rewritten core uses
- * internally (IoEv, io_rd_fn / io_wr_fn, RUN_OK .. RUN_STOP,
- * C5X_REG_*), which denote the same types and values.
+ * The diagnostic per-PC execution counters and recent-PC ring have been
+ * removed; the remaining ABI is shared by the Python wrapper and C glue.
  *
  * ABI stability notes (do not change without updating c5x.py in lockstep):
  *  - IoEv / C5xIoEv field order and types are the ctypes layout:
@@ -84,11 +79,8 @@ C5x *c5x_new(void);
 uint16_t *c5x_pmem(C5x *c);
 uint16_t *c5x_dmem(C5x *c);
 uint16_t *c5x_iomem(C5x *c);
-uint32_t *c5x_hits(C5x *c);
 C5xIoEv *c5x_iolog(C5x *c);
 uint32_t c5x_iolog_count(C5x *c);
-uint16_t *c5x_pcring(C5x *c);
-uint32_t c5x_pcring_idx(C5x *c);
 int c5x_run(C5x *c, uint64_t cycles);
 uint32_t c5x_get(C5x *c, int id);
 void c5x_set(C5x *c, int id, uint32_t v);
@@ -112,8 +104,6 @@ uint16_t *c5x_dxr_ring(C5x *c);
 void c5x_set_trace(C5x *c, int32_t pc);
 void c5x_set_watch(C5x *c, int32_t a);
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc);
-uint32_t c5x_pc_hits(C5x *c, uint32_t pc);
-void c5x_pc_hits_clear(C5x *c);
 uint32_t c5x_trace_n(C5x *c);
 void c5x_trace_get(C5x *c, uint32_t i, uint32_t *acc, uint16_t *ret, uint16_t *ret2);
 uint32_t c5x_mmr_count(C5x *c, int wr, int a);

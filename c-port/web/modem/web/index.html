@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Courier modems</title>
+<style>
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: #f6f6f4; color: #1d1d1b; }
+  main { padding: .9rem 1.2rem; }
+  .controls { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+  button { font: inherit; padding: .45rem 1rem; border-radius: 6px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; }
+  label { color: #6b6b66; }
+  input { width: 4.5rem; font: inherit; }
+  #status { color: #6b6b66; }
+  .modems { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: .8rem 0; }
+  .modem { min-width: 0; }
+  .mtitle { font-weight: 600; margin-bottom: .3rem; }
+  .modem svg { width: 100%; max-width: 520px; height: auto; display: block; }
+  pre { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: .5rem; height: 34vh; overflow: auto; font: 12px/1.35 ui-monospace, monospace; margin: .6rem 0 0; }
+  .send { display: flex; gap: .4rem; margin: .4rem 0 0; }
+  .send input { flex: 1; min-width: 0; font: inherit; padding: .35rem .5rem; border: 1px solid #ccc; border-radius: 6px; }
+  .send button { font: inherit; padding: .35rem .8rem; }
+  table { border-collapse: collapse; font-size: .92rem; }
+  td { padding: .25rem 1.4rem .25rem 0; border-bottom: 1px solid #ccc; }
+  td:first-child { color: #6b6b66; white-space: nowrap; }
+  @media (max-width: 800px) { .modems { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="controls">
+    <button id="go">Start call</button>
+    <button id="hangup" disabled>Hang up</button>
+    <span id="status">Idle.</span>
+  </div>
+  <div class="modems">
+    <section class="modem">
+      <div class="mtitle">A &middot; answerer</div>
+      <div id="panel-A"></div>
+      <pre id="log-A"></pre>
+      <form class="send" data-role="A"><input type="text" placeholder="type here: goes out of modem A to B" autocomplete="off"><button>Send</button></form>
+    </section>
+    <section class="modem">
+      <div class="mtitle">B &middot; caller</div>
+      <div id="panel-B"></div>
+      <pre id="log-B"></pre>
+      <form class="send" data-role="B"><input type="text" placeholder="type here: goes out of modem B to A" autocomplete="off"><button>Send</button></form>
+    </section>
+  </div>
+  <table>
+    <tr><td>Connect</td><td id="t-connect">-</td></tr>
+    <tr><td>Messages</td><td id="t-msgs">-</td></tr>
+    <tr><td>Sim time reached</td><td id="t-sim">-</td></tr>
+    <tr><td>Speed per modem</td><td id="t-rate">-</td></tr>
+  </table>
+</main>
+<script src="panel.js"></script>
+<script>
+const LOOKAHEAD_S = 0.1;    // 100 ms of line latency (absorbs browser message jitter)
+const GAIN = 0.5;           // link default
+const scriptA = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r']];   // answerer: host answers RING with ATA
+const scriptB = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r'], [3.0, 'ATDT5551234\r']];  // caller dials 7 digits; the line supplies dial tone
+
+const $ = (id) => document.getElementById(id);
+const logEls = { A: $('log-A'), B: $('log-B') }, statusEl = $('status');
+
+// Typing in a modem's box sends that text into the modem's serial port.
+for (const form of document.querySelectorAll('form.send')) {
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const role = form.dataset.role, box = form.querySelector('input');
+    if (!box.value) return;
+    if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
+    workers[role].postMessage({ cmd: 'send', text: box.value + '\r' });
+    box.value = '';
+  });
+}
+let workers = {}, rec = { A: [], B: [] }, dte = { A: '', B: '' }, doneCount = 0;
+let stats = {};
+let ataSent = false;
+let panels = {};
+let lineW = null;
+
+// Load the front-panel drawing into both panels (A and B).
+fetch('courier-front-panel.svg').then((r) => r.text()).then((svg) => {
+  for (const role of ['A', 'B']) {
+    $('panel-' + role).innerHTML = svg;
+    panels[role] = new PanelDriver($('panel-' + role));
+  }
+});
+// Live audio: caller (B) on the left, answerer (A) on the right.
+let actx = null, pan = {}, nextT = { A: 0, B: 0 }, rate = 7200;
+// Speaker gate: latch 0x12 bit 0x10, active low (driven low = speaker on, per panel.py).
+// Until the firmware writes the latch the speaker counts as off (muted).
+const speakerOn = { A: false, B: false };
+const speakerGain = {};
+function setSpeaker(role, v) {
+  speakerOn[role] = v >= 0 && !(v & 0x10);
+  if (speakerGain[role]) speakerGain[role].gain.value = speakerOn[role] ? 1 : 0;
+}
+
+function audioInit() {
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  for (const [role, p] of [['B', -1], ['A', 1]]) {
+    pan[role] = actx.createStereoPanner();
+    pan[role].pan.value = p;
+    speakerGain[role] = actx.createGain();
+    speakerGain[role].gain.value = speakerOn[role] ? 1 : 0;
+    speakerGain[role].connect(pan[role]);
+    pan[role].connect(actx.destination);
+  }
+  nextT = { A: 0, B: 0 };
+  pendingAudio = { A: [], B: [] }; pendingLen = { A: 0, B: 0 };
+}
+
+// Audio is batched to ~150 ms per buffer: one playback node per chunk would
+// swamp the main thread and slow the modems down.
+let pendingAudio = { A: [], B: [] }, pendingLen = { A: 0, B: 0 };
+
+function playChunk(role, tx) {
+  if (!actx) return;
+  const f = new Float32Array(tx.length);
+  for (let i = 0; i < tx.length; i++) f[i] = Math.max(-1, Math.min(1, 0.5 * tx[i] / 32768));
+  pendingAudio[role].push(f);
+  pendingLen[role] += f.length;
+  if (pendingLen[role] >= rate * 0.15) flushAudio(role);
+}
+
+function flushAudio(role) {
+  if (!actx || pendingLen[role] === 0) return;
+  const out = new Float32Array(pendingLen[role]);
+  let o = 0;
+  for (const f of pendingAudio[role]) { out.set(f, o); o += f.length; }
+  pendingAudio[role] = []; pendingLen[role] = 0;
+  const buf = actx.createBuffer(1, out.length, rate);
+  buf.copyToChannel(out, 0);
+  const src = actx.createBufferSource();
+  src.buffer = buf;
+  src.connect(speakerGain[role]);
+  // Keep a short playback cushion so network jitter does not cause gaps.
+  const start = Math.max(nextT[role], actx.currentTime + 0.15);
+  src.start(start);
+  nextT[role] = start + buf.duration;
+}
+let pend = { A: '', B: '' };
+let sent = false, stopping = false, t0 = 0, simNow = { A: 0, B: 0 };
+
+function say(role, line) { const el = logEls[role]; el.textContent += line + '\n'; el.scrollTop = el.scrollHeight; }
+
+function writeWav(left, right, sr) {
+  const n = Math.min(left.length, right.length);
+  const buf = new ArrayBuffer(44 + n * 4), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 4, true);
+  for (let i = 0; i < n; i++) {
+    v.setInt16(44 + i * 4, Math.max(-32768, Math.min(32767, left[i])), true);
+    v.setInt16(46 + i * 4, Math.max(-32768, Math.min(32767, right[i])), true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+function concat(parts) {
+  const n = parts.reduce((s, a) => s + a.length, 0), out = new Int32Array(n);
+  let o = 0; for (const a of parts) { out.set(a, o); o += a.length; }
+  return out;
+}
+
+// Flash a UART or control lamp on one panel. Blinks last 150 ms.
+function flashLamp(role, name) {
+  const p = panels[role];
+  if (!p) return;
+  p.setUart(name, true);
+  setTimeout(() => p.setUart(name, false), 150);
+}
+
+function onMessage(role, m) {
+  if (m.error) { statusEl.textContent = role + ' error: ' + m.error; return; }
+  if (m.latch !== undefined) {
+    if (panels[role]) panels[role].setLatches(m.latch);
+    setSpeaker(role, m.latch[1]);   // [0x10, 0x12, 0x14]: index 1 is 0x12
+    return;
+  }
+  if (m.ready) { rate = m.rate; return; }
+  if (m.done) {
+    if (++doneCount === 2) finish();
+    return;
+  }
+  if (m.stat) {
+    stats[role] = m;
+    $('t-rate').textContent = ['A', 'B'].map((r) => stats[r] ? r + ' sim ' + stats[r].sim.toFixed(1) + ' s, ' +
+      (stats[r].sim / stats[r].wall).toFixed(2) + 'x, starved ' + stats[r].starved + ', rx ' + stats[r].rxMs.toFixed(0) + ' ms' : r + ' -').join(' | ');
+    return;
+  }
+  if (m.host !== undefined) {
+    flashLamp(role, 'SD');
+    flashLamp(role, 'RS');
+    say(role, m.sim.toFixed(2) + 's HOST->' + role + ' ' + JSON.stringify(m.host));
+    if (role === 'B' && m.host.includes('ATDT')) workers.A.postMessage({ ring: 1 });
+    return;
+  }
+  simNow[role] = m.sim;
+  playChunk(role, m.tx);
+  if (m.dte) {
+    flashLamp(role, 'RD');
+    dte[role] += m.dte;
+    // Log only complete lines: hold text until a newline arrives.
+    pend[role] += m.dte;
+    if (role === 'A' && !ataSent && dte.A.includes('RING')) {
+      ataSent = true;
+      workers.A.postMessage({ cmd: 'send', text: 'ATA\r' });
+      workers.A.postMessage({ ring: 0 });   // stop ringing once ATA is sent
+    }
+    const parts = pend[role].split(/\r\n|\r|\n/);
+    pend[role] = parts.pop();                  // unfinished fragment stays pending
+    for (const line of parts) if (line.trim()) say(role, m.sim.toFixed(2) + 's ' + role + ' ' + JSON.stringify(line));
+    if (!sent && dte.A.includes('CONNECT') && dte.B.includes('CONNECT')) {
+      sent = true;
+      workers.B.postMessage({ cmd: 'send', text: 'Hello world from courier\r' });
+      workers.A.postMessage({ cmd: 'send', text: 'Hello back from the answerer\r' });
+    }
+  }
+  $('t-sim').textContent = Math.min(simNow.A, simNow.B).toFixed(2) + ' s';
+}
+
+// Hang up: send ATH to both modems, then stop both workers.
+$('hangup').addEventListener('click', () => {
+  if (!workers.A || !workers.B) return;
+  $('hangup').disabled = true;
+  statusEl.textContent = 'Hanging up...';
+  for (const role of ['A', 'B']) workers[role].postMessage({ cmd: 'send', text: 'ATH\r' });
+  setTimeout(() => { for (const role of ['A', 'B']) workers[role].postMessage({ stop: true }); }, 500);
+});
+
+function finish() {
+  const conn = dte.A.includes('CONNECT') && dte.B.includes('CONNECT');
+  $('t-connect').textContent = conn ? 'yes' : 'no';
+  $('t-msgs').textContent = 'to answerer: ' + (dte.A.includes('Hello world from courier') ? 'yes' : 'no') +
+                            ', to caller: ' + (dte.B.includes('Hello back from the answerer') ? 'yes' : 'no');
+  statusEl.textContent = 'Done. Audio played live (left = caller, right = answerer).';
+  $('go').disabled = false;
+  $('hangup').disabled = true;
+}
+
+$('go').addEventListener('click', () => {
+  for (const w of Object.values(workers)) w.terminate();
+  if (lineW) lineW.terminate();
+  lineW = new Worker('line.js');
+  lineW.postMessage({ init: true, lookaheadS: LOOKAHEAD_S, gain: GAIN });
+  workers = {}; rec = { A: [], B: [] }; dte = { A: '', B: '' }; doneCount = 0; sent = false;
+  simNow = { A: 0, B: 0 }; stopping = false; ataSent = false; pend = { A: '', B: '' }; logEls.A.textContent = ''; logEls.B.textContent = '';
+  $('t-connect').textContent = '-'; $('t-msgs').textContent = '-'; $('t-sim').textContent = '-';
+  audioInit();
+  $('go').disabled = true;
+  $('hangup').disabled = false;
+  statusEl.textContent = 'Running two modems...';
+  t0 = performance.now();
+  for (const [role, script] of [['A', scriptA], ['B', scriptB]]) {
+    const ch = new MessageChannel();
+    lineW.postMessage({ role, port: ch.port2 }, [ch.port2]);
+    const w = new Worker('worker.js');
+    if (panels[role]) panels[role].setUart('TR', true);   // DTR asserted: the call is running
+    w.onmessage = (e) => onMessage(role, e.data);
+    w.onerror = (e) => { statusEl.textContent = role + ' worker error: ' + e.message; $('go').disabled = false; };
+    workers[role] = w;
+    w.postMessage({ init: true, role, script, lookaheadS: LOOKAHEAD_S, dialTone: role === 'B', port: ch.port1 }, [ch.port1]);
+  }
+});
+</script>
+</body>
+</html>

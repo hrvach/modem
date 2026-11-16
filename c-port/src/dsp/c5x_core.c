@@ -37,7 +37,6 @@
 /* ------------------------------------------------------------------ */
 
 #define IOLOG_N 65536          /* I/O log capacity (orig: 65536 entries) */
-#define PC_RING_N 256          /* recent-PC ring size */
 #define TRACE_N 8192           /* trace-buffer capacity */
 #define DXR_RING_N 65536       /* DXR write ring size (wraps at 0xFFFF) */
 #define STACK_N 8              /* 8-deep hardware stack */
@@ -169,8 +168,6 @@ struct C5x {
 
     /* Memories (flat 64K x 16-bit views owned by the core). */
     uint16_t *pmem, *dmem, *iomem;
-    uint32_t *hits;                    /* per-PC execution counts */
-
     /* Host I/O callbacks (NULL = use iomem[] as the port array). */
     io_rd_fn io_rd;
     io_wr_fn io_wr;
@@ -185,8 +182,6 @@ struct C5x {
     uint8_t *bp;
 
     uint16_t cur_pc;                   /* PC of the instruction now executing */
-    uint16_t pcring[PC_RING_N];        /* ring of recently executed PCs */
-    uint32_t pcring_i;
     int in_delay;                      /* 1 = executing a delay-slot word */
 
     /* AR0 / NDX mirroring (audit #10). */
@@ -194,8 +189,7 @@ struct C5x {
     int ar0_dirty, int_inh;
     int cmpr_ar0;                      /* experiment: CMPR compares AR0, not ARCR */
 
-    /* PC-hit / watch / trace diagnostics. */
-    uint32_t pc_hits[65536];
+    /* Watch / trace diagnostics. */
     uint32_t watch_hits[65536];
     int32_t watch_a;
     int32_t trace_pc;
@@ -258,7 +252,6 @@ C5x *c5x_new(void)
     c->pmem = calloc(65536, 2);
     c->dmem = calloc(65536, 2);
     c->iomem = calloc(65536, 2);
-    c->hits = calloc(65536, 4);
     c->bp = calloc(65536, 1);
     c->iolog = calloc(IOLOG_N, sizeof(IoEv));
     c->dxr_ring = calloc(DXR_RING_N, 2);
@@ -271,7 +264,6 @@ C5x *c5x_new(void)
 uint16_t *c5x_pmem(C5x *c) { return c->pmem; }
 uint16_t *c5x_dmem(C5x *c) { return c->dmem; }
 uint16_t *c5x_iomem(C5x *c) { return c->iomem; }
-uint32_t *c5x_hits(C5x *c) { return c->hits; }
 IoEv *c5x_iolog(C5x *c) { return c->iolog; }
 uint32_t c5x_iolog_count(C5x *c) { return c->iolog_n; }
 void c5x_iolog_clear(C5x *c) { c->iolog_n = 0; }
@@ -285,12 +277,9 @@ void c5x_set_io(C5x *c, io_rd_fn rd, io_wr_fn wr, void *ctx)
 void c5x_set_bp(C5x *c, uint16_t a, int on) { c->bp[a] = on; }
 void c5x_stop(C5x *c) { c->stop = 1; }
 void c5x_set_bio(C5x *c, int v) { c->bio = v; }
-uint16_t *c5x_pcring(C5x *c) { return c->pcring; }
-uint32_t c5x_pcring_idx(C5x *c) { return c->pcring_i; }
-
 /* Reset: restores the power-on register state for a fresh run at pc.
- * Deliberately does NOT touch: the memories, hits/pc_hits/watch/trace
- * diagnostics, MMR counters, breakpoints, the I/O log, the DXR ring,
+ * Deliberately does NOT touch: the memories, watch/trace diagnostics,
+ * MMR counters, breakpoints, the I/O log, the DXR ring,
  * ivec_ind, cmpr_ar0, xint_mode, cyc_model, legacy, idle_cycles,
  * timer_exp, or the unlisted registers below (indx, arcr, cbsr/cber,
  * bmar, dbmr, pasr, paer, rpt_start/rpt_end, io_rep, ar0_prev).
@@ -896,11 +885,8 @@ static inline void upd_arp(C5x *c, int n)
  * 8 = bit-reversed -INDX, 0xA = -INDX, 0xC = +INDX, 0xE = bit-reversed
  * +INDX); bit 0 (m & 1) additionally switches ARP to the low 3 bits.
  * An unlisted modification sets RUN_BADOP (orig L270: default case). */
-static uint16_t ea(C5x *c)
+static uint16_t ea_indirect(C5x *c, uint16_t op)
 {
-    uint16_t op = c->op;
-    if (!(op & 0x80))
-        return (uint16_t)(c->dp | (op & 0x7f));
     int arp = c->arp, nar = op & 7, m = (op >> 3) & 0xF;
     uint16_t a = c->ar[arp];
     switch (m & ~1) {
@@ -932,6 +918,14 @@ static uint16_t ea(C5x *c)
     if (m & 1)
         upd_arp(c, nar);
     return a;
+}
+
+static inline __attribute__((always_inline)) uint16_t ea(C5x *c)
+{
+    uint16_t op = c->op;
+    if (!(op & 0x80))
+        return (uint16_t)(c->dp | (op & 0x7f));
+    return ea_indirect(c, op);
 }
 
 /* SST uses page 0 for direct addressing (orig L275). */
@@ -1282,9 +1276,6 @@ static void exec1(C5x *c)
 {
     uint16_t op;
     c->cur_pc = c->pc;
-    c->hits[c->pc]++;
-    c->pcring[c->pcring_i++ & 255] = c->pc;
-    c->pc_hits[c->pc & 0xFFFF]++;
     if ((int32_t)c->pc == c->trace_pc && c->trace_n < TRACE_N) {
         c->trace_buf[c->trace_n].acc = c->acc;
         c->trace_buf[c->trace_n].ret = c->stack[c->sp];
@@ -2587,8 +2578,6 @@ void c5x_set_watch(C5x *c, int32_t a)
     memset(c->watch_hits, 0, sizeof c->watch_hits);
 }
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc) { return c->watch_hits[pc & 0xFFFF]; }
-uint32_t c5x_pc_hits(C5x *c, uint32_t pc) { return c->pc_hits[pc & 0xFFFF]; }
-void c5x_pc_hits_clear(C5x *c) { memset(c->pc_hits, 0, sizeof c->pc_hits); }
 void c5x_set_trace(C5x *c, int32_t pc)
 {
     c->trace_pc = pc;
