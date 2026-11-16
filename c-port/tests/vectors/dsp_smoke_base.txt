@@ -1,0 +1,32 @@
+# DSP core smoke: zip dsp/c5x.py standalone, dsp_base.bin only (no overlays, no IO hooks, no serial ticks)
+# command: cd /tmp/cport-run/modem/dsp && python3 /tmp/gen_vectors.py  (DSP part; see also dsp/smoke1.py pattern: reset(0x8000), log(True), run in 200k steps)
+# dsp_base.bin: 55420 bytes, sha256 b87b2b30e217aed19a3499209b935432707adc1ed7c6e28eb0ec7c2cca92f886
+# run: d=DSP(); load_images(d); d.reset(0x8000); d.log(True); 8 x d.run(1000000)  (total 8000000 cycles)
+# state() format: PC= ACC= T0= ST0= ST1= IFR= IMR= AR0..AR7 (hex)
+after 1000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=1000000 timer_expiries=59
+after 2000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=2000000 timer_expiries=118
+after 3000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=3000000 timer_expiries=178
+after 4000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=4000000 timer_expiries=238
+after 5000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=5000000 timer_expiries=297
+after 6000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=6000000 timer_expiries=357
+after 7000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=7000000 timer_expiries=416
+after 8000000 cycles run=0 (RUN_OK) PC=8098 ACC=00000001 T0=0000 ST0=2607 ST1=25BD IFR=0028 IMR=0000 AR0=0000 AR1=0022 AR2=0000 AR3=0000 AR4=0000 AR5=0000 AR6=0000 AR7=0BD0 dxr_head=2 idle_cycles=0 total_cycles=8000000 timer_expiries=476
+pm_checksum: sum(pm[0x8000:0x8000+27710]) & 0xFFFFFFFF = 952823955 (0x38CAF093)
+dm_checksum: sum(dm[0:0x10000]) & 0xFFFFFFFF = 491427 (0x00077FA3)
+dxr_head=2
+dxr_ring_first16: 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+recent_pcs(16): 8098 8097 8098 8097 8098 8097 8098 8097 8098 8097 8098 8097 8098 8097 8098 8097
+io_events: 13 total, first 40 (cyc pc R/W port val):
+         2 pc=8001 W port=0057 val=FFFF
+         8 pc=800B W port=8021 val=0000
+      1467 pc=802C W port=0056 val=FFFF
+      1495 pc=8048 W port=0068 val=000F
+      1496 pc=804A W port=0069 val=0002
+      1498 pc=804E W port=006A val=0000
+      1501 pc=8054 W port=006B val=0078
+      1502 pc=8056 W port=006C val=0901
+      1534 pc=808A W port=8032 val=0038
+      1536 pc=808C W port=8032 val=00F8
+      1540 pc=8091 W port=8022 val=0008
+      1541 pc=8093 W port=8022 val=40C8
+      1543 pc=8096 W port=8021 val=0001

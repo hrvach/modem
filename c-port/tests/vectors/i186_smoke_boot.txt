@@ -1,0 +1,17 @@
+# 186 core smoke: zip sys/machine.py, PROFILE=sv25, FLASH=/tmp/SV25.decoded.flash.bin (XMD-derived, sha256 f24633ab12c21c3cef93c0f6c0bb8150021b0056953cb5517a95932abc673c52)
+# command: cd /tmp/cport-run/modem/sys && PROFILE=sv25 FLASH=/tmp/SV25.decoded.flash.bin python3 /tmp/gen_i186_smoke.py
+# boot: m=Machine(nvram_mode=None); m.logging=False; m.run(900_000_000); then m.send("AT\r"); m.run(150_000_000); then m.send("ATI7\r"); m.run(150_000_000)
+# cpu.state(): AX BX CX DX SP BP SI DI DS ES SS CS IP FLAGS (hex, 16-bit regs)
+boot run(900000000) -> 0 wall=38.5s cpu_cycles=900000015 phys_pc=0x8934D
+cpu after boot: AX=0000 BX=0000 CX=0000 DX=06AA SP=0122 BP=0000 SI=0895 DI=7FF8 DS=0000 ES=0000 SS=0000 CS=8000 IP=934D FLAGS=F246
+badop: (0, 0)
+dte_text after boot: b''
+dsp attached: True  dsp pc=810A
+recent pcs (cpu ring, last 24): 89287 89267 8B3EC 8B3F1 8B3F3 8B3F8 8B3FA 8B3FB 8926A 8B432 8B437 8B439 8B43E 8B45D 8B45E 8926D 8926F 8B48E 8B493 8B4A8 89272 89277 8927C 8927E
+after AT run(150000000) -> 0 wall=4.4s cpu_cycles=1050000018 phys_pc=0x8B43E
+cpu after AT: AX=0000 BX=0000 CX=0000 DX=06AA SP=0122 BP=0000 SI=A493 DI=7FF8 DS=0000 ES=0000 SS=0000 CS=8000 IP=B43E FLAGS=F246
+dte_text after AT: b'\r\nOK\r\n'
+after ATI7 run(150000000) -> 0 wall=5.2s cpu_cycles=1200000018 phys_pc=0x8934D
+cpu after ATI7: AX=0000 BX=0000 CX=0000 DX=06AA SP=0122 BP=0000 SI=A493 DI=7FF8 DS=0000 ES=0000 SS=0000 CS=8000 IP=934D FLAGS=F246
+dte_text after ATI7: b'\r\nUSRobotics Courier V.Everything Configuration Profile...\r\n\r\nProduct type           US/Canada External\r\nOptions                HST,V32bis\r\nClock Freq             25 Mhz\r\nFlash ROM              512k\r\nRam                    64k\r\n\r\nSupervisor date        03/13/98\r\nDSP date               03/13/98\r\n\r\nSupervisor rev         7.3.14\r\nDSP rev                3.0.13\r\n\r\nOK\r\n'
+total wall=48.1s
