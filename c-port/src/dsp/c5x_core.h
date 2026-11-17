@@ -5,8 +5,13 @@
  * callers only ever hold a C5x pointer, plus the flat memory / log / ring
  * views returned by the c5x_* accessors below.
  *
- * The diagnostic per-PC execution counters and recent-PC ring have been
- * removed; the remaining ABI is shared by the Python wrapper and C glue.
+ * Compatibility: this header is a superset of the provisional header that
+ * previously lived here.  Every name that header declared (C5xIoEv,
+ * c5x_io_rd_fn / c5x_io_wr_fn, C5X_PC .. C5X_SETIDLE, C5X_RUN_OK ..,
+ * all c5x_* prototypes) is kept verbatim, so existing glue keeps
+ * compiling.  Added alongside are the aliases the rewritten core uses
+ * internally (IoEv, io_rd_fn / io_wr_fn, RUN_OK .. RUN_STOP,
+ * C5X_REG_*), which denote the same types and values.
  *
  * ABI stability notes (do not change without updating c5x.py in lockstep):
  *  - IoEv / C5xIoEv field order and types are the ctypes layout:
@@ -79,8 +84,11 @@ C5x *c5x_new(void);
 uint16_t *c5x_pmem(C5x *c);
 uint16_t *c5x_dmem(C5x *c);
 uint16_t *c5x_iomem(C5x *c);
+uint32_t *c5x_hits(C5x *c);
 C5xIoEv *c5x_iolog(C5x *c);
 uint32_t c5x_iolog_count(C5x *c);
+uint16_t *c5x_pcring(C5x *c);
+uint32_t c5x_pcring_idx(C5x *c);
 int c5x_run(C5x *c, uint64_t cycles);
 uint32_t c5x_get(C5x *c, int id);
 void c5x_set(C5x *c, int id, uint32_t v);
@@ -96,6 +104,7 @@ void c5x_set_cmpr_ar0(C5x *c, int v);
 void c5x_set_xint_mode(C5x *c, int m);
 void c5x_set_cycle_model(C5x *c, int m);
 void c5x_set_legacy(C5x *c, int m);
+void c5x_set_diag(C5x *c, int on); /* 0 = skip per-instr/per-access diag counters; default 1 (on) */
 uint64_t c5x_idle_cycles(C5x *c);
 uint64_t c5x_timer_expiries(C5x *c);
 uint64_t c5x_total_cycles(C5x *c);
@@ -104,6 +113,8 @@ uint16_t *c5x_dxr_ring(C5x *c);
 void c5x_set_trace(C5x *c, int32_t pc);
 void c5x_set_watch(C5x *c, int32_t a);
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc);
+uint32_t c5x_pc_hits(C5x *c, uint32_t pc);
+void c5x_pc_hits_clear(C5x *c);
 uint32_t c5x_trace_n(C5x *c);
 void c5x_trace_get(C5x *c, uint32_t i, uint32_t *acc, uint16_t *ret, uint16_t *ret2);
 uint32_t c5x_mmr_count(C5x *c, int wr, int a);
@@ -114,6 +125,9 @@ uint32_t c5x_ext_count(C5x *c, int wr, int blk);
 uint16_t c5x_rsv(C5x *c, int w);
 void c5x_mmr_clear(C5x *c);
 void c5x_stop(C5x *c);
+void c5x_pm_invalidate(C5x *c);
+void c5x_set_diag(C5x *c, int on);
+void c5x_pm_invalidate(C5x *c); /* PERF2 stage 3: drop cached RPTB block decodes */
 void c5x_set_bio(C5x *c, int v);
 
 #ifdef __cplusplus

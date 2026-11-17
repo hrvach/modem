@@ -73,6 +73,8 @@ C5x *c5x_new(void);
 uint16_t *c5x_pmem(C5x *c);
 uint16_t *c5x_dmem(C5x *c);
 int c5x_run(C5x *c, uint64_t cycles);
+void c5x_pm_invalidate(C5x *c);
+void c5x_set_diag(C5x *c, int on);
 uint32_t c5x_get(C5x *c, int id);
 void c5x_reset(C5x *c, uint16_t pc);
 void c5x_irq(C5x *c, int bit);

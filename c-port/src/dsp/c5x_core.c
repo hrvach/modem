@@ -37,6 +37,7 @@
 /* ------------------------------------------------------------------ */
 
 #define IOLOG_N 65536          /* I/O log capacity (orig: 65536 entries) */
+#define PC_RING_N 256          /* recent-PC ring size */
 #define TRACE_N 8192           /* trace-buffer capacity */
 #define DXR_RING_N 65536       /* DXR write ring size (wraps at 0xFFFF) */
 #define STACK_N 8              /* 8-deep hardware stack */
@@ -109,6 +110,36 @@
 #define CWSR_BIG_BIT 4         /* CWSR bit 4: large (8K) vs small (128-word) pages */
 
 /* ------------------------------------------------------------------ */
+/* RPTB block replay (PERF2 stage 3): decoded-block cache.  See        */
+/* blk_replay() for the design and the exactness argument.  A BlkDec   */
+/* holds one RPTB block's body decoded once: the opcode word, the      */
+/* cycle-model charge (cycm[op], or 1 when the cycle model is off),    */
+/* and the replay-relevant flags per entry, plus a copy of the raw     */
+/* words for validation.  At most BLK_MAX_WORDS words / BLK_MAX_ENT    */
+/* entries per block; longer blocks simply do not replay.              */
+/* ------------------------------------------------------------------ */
+#define BLK_CACHE_N 64
+#define BLK_MAX_WORDS 128
+#define BLK_MAX_ENT 128
+#define BLK_CONT 0     /* blk_replay: resume the main loop (block done / left) */
+#define BLK_F_STORE 1  /* entry may call dm_wr with an arbitrary address */
+#define BLK_F_RPTC  2  /* entry is an rptc-loop op: may leave rptc == -1 */
+#define BLK_F_RPT   4  /* entry is RPT/RPTZ/RPT-dma: sets rptc */
+#define BLK_F_XC    8  /* entry is XC: may skip 1-2 words */
+typedef struct { uint16_t pc, op, cy; uint8_t flags; } BlkEnt;
+typedef struct BlkDec {
+    uint16_t pasr, paer;
+    uint16_t n;                /* entries in e[] */
+    uint64_t epoch;            /* pm_epoch at decode / last validation */
+    uint64_t bp_epoch;         /* bp_epoch at decode / last validation */
+    uint64_t validated_seq;    /* run_seq at last validation */
+    int cyc_model;             /* cyc_model at decode */
+    uint16_t words[BLK_MAX_WORDS];   /* raw block words, for validation */
+    uint8_t idx_of[BLK_MAX_WORDS];   /* word offset -> entry index, 0xFF = none */
+    BlkEnt e[BLK_MAX_ENT];
+} BlkDec;
+
+/* ------------------------------------------------------------------ */
 /* Core state                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -165,9 +196,20 @@ struct C5x {
     int rep_cont;                      /* 1 = inside a repeated instruction */
     int legacy;                        /* stored by c5x_set_legacy; nothing reads it */
     uint64_t idle_cycles, timer_exp;   /* IDLE cycles / timer expiries (diagnostics) */
+    /* Diagnostics gate (see c5x_set_diag): when 0, exec1/mmr/dm skip the
+     * per-instruction and per-access diagnostic counters (hits, pcring,
+     * pc_hits, trace, mmr_n/mmr_pc/mmr_val, ext_n, ff_n, rsv).  The C
+     * driver never reads those counters, so it runs with diag off; the
+     * default is ON so the Python ctypes .so ABI keeps its old
+     * behaviour unless the caller opts out.  Counters that the glue
+     * DOES read (cycles, timer_exp, idle_cycles, dxr_ring, iolog) are
+     * not gated. */
+    int diag;
 
     /* Memories (flat 64K x 16-bit views owned by the core). */
     uint16_t *pmem, *dmem, *iomem;
+    uint32_t *hits;                    /* per-PC execution counts */
+
     /* Host I/O callbacks (NULL = use iomem[] as the port array). */
     io_rd_fn io_rd;
     io_wr_fn io_wr;
@@ -182,14 +224,37 @@ struct C5x {
     uint8_t *bp;
 
     uint16_t cur_pc;                   /* PC of the instruction now executing */
+    uint16_t pcring[PC_RING_N];        /* ring of recently executed PCs */
+    uint32_t pcring_i;
     int in_delay;                      /* 1 = executing a delay-slot word */
 
-    /* AR0 / NDX mirroring (audit #10). */
-    uint16_t ar0_prev;
+    /* AR0 / NDX mirroring (audit #10).  PERF2 stage 1: ar0_prev removed —
+     * it was written once per instruction in c5x_run but never read
+     * anywhere, in this tree or in the original Python core
+     * (handover/dsp/c5x_core.c:600 writes it, nothing reads it, and no
+     * accessor exposes it).  Bisect (PERF2.md) showed the removal is not
+     * the source of the +3 s seen with the glue logging gates on. */
     int ar0_dirty, int_inh;
     int cmpr_ar0;                      /* experiment: CMPR compares AR0, not ARCR */
 
-    /* Watch / trace diagnostics. */
+    /* RPTB block replay (PERF2 stage 3).  pm_epoch is bumped on any
+     * program-word or fetch-mapping change (pm_wr, glue overlay loads
+     * via c5x_pm_invalidate, LST #1 / RCNF / SCNF, PMST writes, c5x_set
+     * ST1/PMST); bp_epoch is bumped by c5x_set_bp; run_seq counts
+     * c5x_run entries (the per-call validation in blk_lookup covers
+     * the one frequent PM writer that does NOT bump the epoch, dm_wr
+     * to external (unified) memory).  replay_active is 1 while
+     * blk_replay is executing entries; replay_dirty is set when a
+     * write during the replay threatens the block's words or the
+     * block/mapping state (mmr_wr PMST/RPTC/BRCR/PASR/PAER cases,
+     * pm_wr). */
+    uint64_t pm_epoch, bp_epoch, run_seq;
+    int replay_active, replay_dirty;
+    uint16_t replay_lo, replay_hi; /* active block range, for blk_store_guard */
+    BlkDec *blk_cache[BLK_CACHE_N];
+
+    /* PC-hit / watch / trace diagnostics. */
+    uint32_t pc_hits[65536];
     uint32_t watch_hits[65536];
     int32_t watch_a;
     int32_t trace_pc;
@@ -204,6 +269,21 @@ struct C5x {
      * to dmem[ivec_ind[n]] instead of the vector-table entry. */
     uint16_t ivec_ind[16];
 };
+
+/* A program-word or fetch-mapping change: invalidate cached block
+ * decodes (bump pm_epoch) and, if a replay is in flight, flag it so
+ * the replay breaks out after the current instruction.  Only called
+ * from rare paths (pm_wr, PMST/RPTC/BRCR/PASR/PAER MMR writes,
+ * LST #1, RCNF/SCNF, c5x_set ST1/PMST).  The frequent dm_wr path
+ * does not call this: its external (unified-memory) writes bump
+ * pm_epoch directly in dm_wr, and its in-replay writes are caught
+ * by blk_store_guard. */
+static inline void blk_state_changed(C5x *c)
+{
+    c->pm_epoch++;
+    if (c->replay_active)
+        c->replay_dirty = 1;
+}
 
 /* Forward declarations for helpers defined in the ALU/addressing section. */
 static inline void push(C5x *c, uint16_t v);
@@ -252,18 +332,21 @@ C5x *c5x_new(void)
     c->pmem = calloc(65536, 2);
     c->dmem = calloc(65536, 2);
     c->iomem = calloc(65536, 2);
+    c->hits = calloc(65536, 4);
     c->bp = calloc(65536, 1);
     c->iolog = calloc(IOLOG_N, sizeof(IoEv));
     c->dxr_ring = calloc(DXR_RING_N, 2);
     c->rptc = 0;
     c->trace_pc = -1;
     c->watch_a = -1;
+    c->diag = 1; /* default ON: preserves the .so / ctypes behaviour */
     return c;
 }
 
 uint16_t *c5x_pmem(C5x *c) { return c->pmem; }
 uint16_t *c5x_dmem(C5x *c) { return c->dmem; }
 uint16_t *c5x_iomem(C5x *c) { return c->iomem; }
+uint32_t *c5x_hits(C5x *c) { return c->hits; }
 IoEv *c5x_iolog(C5x *c) { return c->iolog; }
 uint32_t c5x_iolog_count(C5x *c) { return c->iolog_n; }
 void c5x_iolog_clear(C5x *c) { c->iolog_n = 0; }
@@ -274,15 +357,23 @@ void c5x_set_io(C5x *c, io_rd_fn rd, io_wr_fn wr, void *ctx)
     c->io_wr = wr;
     c->io_ctx = ctx;
 }
-void c5x_set_bp(C5x *c, uint16_t a, int on) { c->bp[a] = on; }
+void c5x_set_bp(C5x *c, uint16_t a, int on) { c->bp[a] = on; c->bp_epoch++; }
 void c5x_stop(C5x *c) { c->stop = 1; }
 void c5x_set_bio(C5x *c, int v) { c->bio = v; }
+/* Invalidate cached RPTB block decodes (PERF2 stage 3).  Called by
+ * the glue after writing program memory from outside the core
+ * (overlay loads through the raw c5x_pmem() pointer). */
+void c5x_pm_invalidate(C5x *c) { c->pm_epoch++; }
+uint16_t *c5x_pcring(C5x *c) { return c->pcring; }
+uint32_t c5x_pcring_idx(C5x *c) { return c->pcring_i; }
+
 /* Reset: restores the power-on register state for a fresh run at pc.
- * Deliberately does NOT touch: the memories, watch/trace diagnostics,
- * MMR counters, breakpoints, the I/O log, the DXR ring,
+ * Deliberately does NOT touch: the memories, hits/pc_hits/watch/trace
+ * diagnostics, MMR counters, breakpoints, the I/O log, the DXR ring,
  * ivec_ind, cmpr_ar0, xint_mode, cyc_model, legacy, idle_cycles,
  * timer_exp, or the unlisted registers below (indx, arcr, cbsr/cber,
- * bmar, dbmr, pasr, paer, rpt_start/rpt_end, io_rep, ar0_prev).
+ * bmar, dbmr, pasr, paer, rpt_start/rpt_end, io_rep).  (PERF2 stage 1:
+ * ar0_prev used to be listed here; the field was removed as write-only.)
  * That selective reset is the original's behaviour (orig L87-99). */
 void c5x_reset(C5x *c, uint16_t pc)
 {
@@ -397,6 +488,7 @@ void c5x_set(C5x *c, int id, uint32_t v)
         break;
     case C5X_REG_ST1:
         c->arb = (int)(v >> ST1_ARB_SHIFT);
+        blk_state_changed(c); /* CNF is part of the fetch mapping */
         c->cnf = (int)((v >> ST1_CNF_BIT) & 1);
         c->tc = (int)((v >> ST1_TC_BIT) & 1);
         c->sxm = (int)((v >> ST1_SXM_BIT) & 1);
@@ -406,6 +498,7 @@ void c5x_set(C5x *c, int id, uint32_t v)
         c->pm = (int)(v & 3);
         break;
     case C5X_REG_PMST:
+        blk_state_changed(c); /* RAM/BRAF are fetch-mapping / block state */
         c->iptr = (int)(v >> PMST_IPTR_SHIFT);
         c->avis = (int)((v >> PMST_AVIS_BIT) & 1);
         c->ovly = (int)((v >> PMST_OVLY_BIT) & 1);
@@ -477,9 +570,9 @@ static void io_write(C5x *c, uint16_t port, uint16_t v)
 /* Memory-mapped registers (data space 0x00..0x5F)                     */
 /* ------------------------------------------------------------------ */
 
-static uint16_t mmr_rd(C5x *c, uint16_t a)
+static inline __attribute__((always_inline)) uint16_t mmr_rd(C5x *c, uint16_t a)
 {
-    if (a < N_MMR) {
+    if (a < N_MMR && c->diag) {
         c->mmr_n[0][a]++;
         c->mmr_pc[0][a] = c->cur_pc;
     }
@@ -534,9 +627,9 @@ static uint16_t mmr_rd(C5x *c, uint16_t a)
     return c->mmr_raw[a];
 }
 
-static void mmr_wr(C5x *c, uint16_t a, uint16_t d)
+static inline __attribute__((always_inline)) void mmr_wr(C5x *c, uint16_t a, uint16_t d)
 {
-    if (a < N_MMR) {
+    if (a < N_MMR && c->diag) {
         c->mmr_n[1][a]++;
         c->mmr_pc[1][a] = c->cur_pc;
         /* mmr_val keeps the first value written, except for the low MMRs,
@@ -564,6 +657,8 @@ static void mmr_wr(C5x *c, uint16_t a, uint16_t d)
         c->ifr &= (uint16_t)~d;
         return;
     case 0x07:
+        /* PMST: RAM changes the fetch mapping, BRAF is block state. */
+        blk_state_changed(c);
         c->iptr = d >> PMST_IPTR_SHIFT;
         c->avis = (d >> PMST_AVIS_BIT) & 1;
         c->ovly = (d >> PMST_OVLY_BIT) & 1;
@@ -573,10 +668,10 @@ static void mmr_wr(C5x *c, uint16_t a, uint16_t d)
         c->trm = (d >> PMST_TRM_BIT) & 1;
         c->braf = d & 1;
         return;
-    case 0x08: c->rptc = d; return;
-    case 0x09: c->brcr = d; return;
-    case 0x0A: c->pasr = d; return;
-    case 0x0B: c->paer = d; return;
+    case 0x08: blk_state_changed(c); c->rptc = d; return;
+    case 0x09: blk_state_changed(c); c->brcr = d; return;
+    case 0x0A: blk_state_changed(c); c->pasr = d; return;
+    case 0x0B: blk_state_changed(c); c->paer = d; return;
     case 0x0C: c->treg0 = d; return;
     case 0x0D: c->treg1 = (uint16_t)(d & 0x1F); return;
     case 0x0E: c->treg2 = (uint16_t)(d & 0xF); return;
@@ -673,9 +768,9 @@ static inline void mmr_bus(C5x *c, uint16_t a)
         c->cycles++;
 }
 
-static inline uint16_t dm_rd(C5x *c, uint16_t a)
+static inline __attribute__((always_inline)) uint16_t dm_rd(C5x *c, uint16_t a)
 {
-    if (a >= DM_MMR_END && !dm_internal(c, a)) {
+    if (c->diag && a >= DM_MMR_END && !dm_internal(c, a)) {
         c->ext_n[0][a >> 10]++;
         if (a >= DM_FF_START)
             c->ff_n[0][a & 255]++;
@@ -693,13 +788,41 @@ static inline uint16_t dm_rd(C5x *c, uint16_t a)
     return c->pmem[a];
 }
 
-static inline void dm_wr(C5x *c, uint16_t a, uint16_t d)
+/* A data write during a replay that lands on a program word of the
+ * block being replayed would make the cached decode stale mid-replay.
+ * External unified memory (pmem[a] is program word a) and SARAM dmem
+ * when it is also program space (RAM=1 and OVLY=1: dmem 0x800.. maps
+ * to program 0x2000..) are the two routes; B0 has none (under CNF=1
+ * data 0x100.. leaves data space, so a DM write there lands in
+ * pmem[], a different cell from program 0xFE00's dmem[]).  The
+ * replay checks replay_dirty after every entry and breaks out, so
+ * this guard only has to set the flag.  It is a single predictable
+ * branch when no replay is in flight (replay_active == 0). */
+static inline void blk_store_guard(C5x *c, uint16_t a)
+{
+    if (a >= DM_MMR_END && !dm_internal(c, a) && !dm_hostwin(a)) {
+        /* External: pmem[a] is program word a. */
+        if (a >= c->replay_lo && a <= c->replay_hi)
+            c->replay_dirty = 1;
+    } else if (c->ram && c->ovly && a >= DM_SARAM_START && a < DM_SARAM_END) {
+        /* SARAM dmem is program 0x2000.. when RAM=1 and OVLY=1. */
+        uint16_t pma = (uint16_t)(a - DM_SARAM_START + PM_SARAM_START);
+        if (pma >= c->replay_lo && pma <= c->replay_hi)
+            c->replay_dirty = 1;
+    }
+}
+
+static inline __attribute__((always_inline)) void dm_wr(C5x *c, uint16_t a, uint16_t d)
 {
     mmr_bus(c, a);
-    if (a >= DM_MMR_END && !dm_internal(c, a))
-        c->ext_n[1][a >> 10]++;
-    if (a >= DM_FF_START)
-        c->ff_n[1][a & 255]++;
+    if (c->replay_active)
+        blk_store_guard(c, a);
+    if (c->diag) {
+        if (a >= DM_MMR_END && !dm_internal(c, a))
+            c->ext_n[1][a >> 10]++;
+        if (a >= DM_FF_START)
+            c->ff_n[1][a & 255]++;
+    }
     if ((int32_t)a == c->watch_a)
         c->watch_hits[c->cur_pc]++;
     if (a < DM_MMR_END)
@@ -708,8 +831,16 @@ static inline void dm_wr(C5x *c, uint16_t a, uint16_t d)
         c->dmem[a] = d;
     else if (dm_hostwin(a))
         io_write(c, a, d);
-    else
+    else {
         c->pmem[a] = d;
+        /* External DM is unified with PM: this may have written a
+         * program word, so cached block decodes must re-validate at
+         * the next lookup (cheap: one increment; re-validation is a
+         * word compare, and lookups are infrequent).  The in-replay
+         * case is covered by blk_store_guard above, which also sets
+         * replay_dirty so the replay breaks out at once. */
+        c->pm_epoch++;
+    }
 }
 
 /* Data move only within on-chip RAM (DMOV/LTD/MACD/MADD): both the
@@ -732,7 +863,7 @@ static inline uint16_t *pm_ptr(C5x *c, uint16_t a)
 }
 
 static inline uint16_t pm_rd(C5x *c, uint16_t a) { return *pm_ptr(c, a); }
-static inline void pm_wr(C5x *c, uint16_t a, uint16_t d) { *pm_ptr(c, a) = d; }
+static inline void pm_wr(C5x *c, uint16_t a, uint16_t d) { *pm_ptr(c, a) = d; blk_state_changed(c); }
 
 /* ------------------------------------------------------------------ */
 /* Stack, ALU, and addressing helpers                                  */
@@ -851,7 +982,7 @@ static uint16_t bitrev16(uint16_t v)
 
 /* Step ARn by step, wrapping to the block start at the block end when
  * circular addressing is enabled for that AR. */
-static void upd_ar(C5x *c, int ar, int step)
+static inline __attribute__((always_inline)) void upd_ar(C5x *c, int ar, int step)
 {
     if (ar == 0)
         c->ar0_dirty = 1;
@@ -885,8 +1016,11 @@ static inline void upd_arp(C5x *c, int n)
  * 8 = bit-reversed -INDX, 0xA = -INDX, 0xC = +INDX, 0xE = bit-reversed
  * +INDX); bit 0 (m & 1) additionally switches ARP to the low 3 bits.
  * An unlisted modification sets RUN_BADOP (orig L270: default case). */
-static uint16_t ea_indirect(C5x *c, uint16_t op)
+static inline __attribute__((always_inline)) uint16_t ea(C5x *c)
 {
+    uint16_t op = c->op;
+    if (!(op & 0x80))
+        return (uint16_t)(c->dp | (op & 0x7f));
     int arp = c->arp, nar = op & 7, m = (op >> 3) & 0xF;
     uint16_t a = c->ar[arp];
     switch (m & ~1) {
@@ -918,14 +1052,6 @@ static uint16_t ea_indirect(C5x *c, uint16_t op)
     if (m & 1)
         upd_arp(c, nar);
     return a;
-}
-
-static inline __attribute__((always_inline)) uint16_t ea(C5x *c)
-{
-    uint16_t op = c->op;
-    if (!(op & 0x80))
-        return (uint16_t)(c->dp | (op & 0x7f));
-    return ea_indirect(c, op);
 }
 
 /* SST uses page 0 for direct addressing (orig L275). */
@@ -1225,7 +1351,9 @@ static void exec_hi_00_0f(C5x *c, uint16_t op)
         c->dp = (d & 0x1ff) << 7;
         break;
     case 0x0F:
-        /* LST #1: load ST1 (ARB and ARP both come from the word). */
+        /* LST #1: load ST1 (ARB and ARP both come from the word).
+         * CNF is in ST1, so this changes the fetch mapping. */
+        blk_state_changed(c);
         a = ea(c);
         d = dm_rd(c, a);
         c->arb = d >> 13;
@@ -1272,20 +1400,19 @@ static void exec_hi_a0_af(C5x *c, uint16_t op);
 static void exec_hi_b0_bf(C5x *c, uint16_t op);
 static void exec_hi_e0_ff(C5x *c, uint16_t op);
 
-static void exec1(C5x *c)
+/* Execute one already-fetched opcode (PERF2 stage 3): the dispatch
+ * ladder plus the family call, without the fetch, the diagnostics
+ * branch, or the base-cycle charge.  exec1() below is the fetch +
+ * exec1_op() wrapper used by the main loop and delay_slot(); the RPTB
+ * block replay calls exec1_op() directly with the decoded opcode, so a
+ * replayed instruction skips the re-fetch and the re-dispatch setup
+ * but executes byte-identical family code (ea/dm_rd/dm_wr, the cycle
+ * additions inside the families, the second-word fetch for two-word
+ * ops).  always_inline so the slow path keeps its current shape (the
+ * ladder + the inlined families live in exec1 as before) and the
+ * replay loop pays no extra call. */
+static inline __attribute__((always_inline)) void exec1_op(C5x *c, uint16_t op)
 {
-    uint16_t op;
-    c->cur_pc = c->pc;
-    if ((int32_t)c->pc == c->trace_pc && c->trace_n < TRACE_N) {
-        c->trace_buf[c->trace_n].acc = c->acc;
-        c->trace_buf[c->trace_n].ret = c->stack[c->sp];
-        c->trace_buf[c->trace_n].ret2 = c->stack[(c->sp + 1) & 7];
-        c->trace_buf[c->trace_n].cyc = c->cycles;
-        c->trace_n++;
-    }
-    op = c->op = fetch(c);
-    c->cycles++; /* base cycle; the cycle model adds the rest in c5x_run */
-
     uint8_t hi = (uint8_t)(op >> 8);
     if (hi <= 0x0F)
         exec_hi_00_0f(c, op);
@@ -1311,6 +1438,31 @@ static void exec1(C5x *c)
         exec_hi_e0_ff(c, op);
     else
         c->status = RUN_BADOP;
+}
+
+static void exec1(C5x *c)
+{
+    uint16_t op;
+    c->cur_pc = c->pc;
+    /* Per-instruction diagnostics (hits / recent-PC ring / per-PC hits /
+     * trace capture).  Gated by c5x_set_diag(): the C driver runs with
+     * them off (it never reads these counters); the default is on so
+     * the Python ctypes .so keeps its old behaviour. */
+    if (c->diag) {
+        c->hits[c->pc]++;
+        c->pcring[c->pcring_i++ & 255] = c->pc;
+        c->pc_hits[c->pc & 0xFFFF]++;
+        if ((int32_t)c->pc == c->trace_pc && c->trace_n < TRACE_N) {
+            c->trace_buf[c->trace_n].acc = c->acc;
+            c->trace_buf[c->trace_n].ret = c->stack[c->sp];
+            c->trace_buf[c->trace_n].ret2 = c->stack[(c->sp + 1) & 7];
+            c->trace_buf[c->trace_n].cyc = c->cycles;
+            c->trace_n++;
+        }
+    }
+    op = c->op = fetch(c);
+    c->cycles++; /* base cycle; the cycle model adds the rest in c5x_run */
+    exec1_op(c, op);
 }
 
 /* High bytes 0x40..0x5F: BIT, multiply/accumulate, DBMR logic ops. */
@@ -2076,8 +2228,8 @@ static void exec_be_ctrl(C5x *c)
     case 0x41: c->intm = 1; break;                               /* DINT */
     case 0x42: c->ovm = 0; break;  /* ROVM */
     case 0x43: c->ovm = 1; break;  /* SOVM */
-    case 0x44: c->cnf = 0; break;  /* RCNF */
-    case 0x45: c->cnf = 1; break;  /* SCNF */
+    case 0x44: blk_state_changed(c); c->cnf = 0; break;  /* RCNF */
+    case 0x45: blk_state_changed(c); c->cnf = 1; break;  /* SCNF */
     case 0x46: c->sxm = 0; break;  /* RSXM */
     case 0x47: c->sxm = 1; break;  /* SSXM */
     case 0x48: c->hm = 0; break;   /* RHM */
@@ -2344,7 +2496,21 @@ static void exec_hi_e0_ff(C5x *c, uint16_t op)
  * ppc + words, except RETC/RET, where "taken" means the return
  * address was popped (TOS may equal the fall-through address).
  * QUIRK (orig L625): the not-taken 2-cycle rule covers RETCD highs
- * 0xFC..0xFE (h >= 0xFC && h < 0xFF) -- 0xFF is NOT included. */
+ * 0xFC..0xFE (h >= 0xFC && h < 0xFF) -- 0xFF is NOT included.
+ * PERF2 stage 2: the two hi-byte range ladders below are a 256-entry
+ * class table instead (0 = no adjustment, 1 = conditional branch:
+ * 4 cycles taken / 2 not-taken, 2 = not-taken-only 2 cycles).  The
+ * table is a literal transcription of the two ladders it replaces;
+ * the (rep_cont, seq) gating is unchanged. */
+static const uint8_t cyc_adj[256] = {
+    /* 0x7B BANZ */ [0x7B] = 1,
+    /* 0xE0..0xE3 BCND, 0xE8..0xEB CC, 0xEC..0xEF RETC */ [0xE0] = 1,
+    [0xE1] = 1, [0xE2] = 1, [0xE3] = 1, [0xE8] = 1, [0xE9] = 1,
+    [0xEA] = 1, [0xEB] = 1, [0xEC] = 1, [0xED] = 1, [0xEE] = 1,
+    [0xEF] = 1,
+    /* 0xFC..0xFE RETCD: not-taken-only (2 cycles when sequential) */
+    [0xFC] = 2, [0xFD] = 2, [0xFE] = 2,
+};
 static int instr_cycles(C5x *c, uint16_t ppc, int sp0)
 {
     int cy;
@@ -2357,15 +2523,12 @@ static int instr_cycles(C5x *c, uint16_t ppc, int sp0)
     uint8_t h = (uint8_t)(c->op >> 8);
     if (h >= 0xEC && h <= 0xEF)
         seq = c->sp == sp0;
-    if (!c->rep_cont && !seq) {
-        if (h == 0x7B || (h >= 0xE0 && h <= 0xE3) ||
-            (h >= 0xE8 && h <= 0xEB) || (h >= 0xEC && h <= 0xEF))
-            cy = 4; /* taken BANZ/BCND/CC/RETC */
-    } else if (!c->rep_cont && seq &&
-               (h == 0x7B || (h >= 0xE0 && h <= 0xE3) ||
-                (h >= 0xE8 && h <= 0xEB) || (h >= 0xEC && h <= 0xEF) ||
-                (h >= 0xFC && h < 0xFF))) {
-        cy = 2; /* not-taken conditional */
+    if (!c->rep_cont) {
+        uint8_t a = cyc_adj[h];
+        if (a == 1)
+            cy = seq ? 2 : 4; /* taken BANZ/BCND/CC/RETC: 4, not-taken: 2 */
+        else if (a == 2 && seq)
+            cy = 2; /* not-taken conditional */
     }
     return cy;
 }
@@ -2407,12 +2570,62 @@ static void handle_braf(C5x *c)
     }
 }
 
-/* Run the timer once per machine cycle elapsed since c0 (orig L639). */
-static void tick_timers_for(C5x *c, uint64_t c0)
+/* Advance the on-chip timer by n machine cycles, in closed form.
+ * Exactly equivalent to calling tick_timer() n times (manual 9.4):
+ * the prescaler counts down from its current value and expires when
+ * it would go below 0 (so the first TIM step is psc+1 ticks away),
+ * then once every tddr+1 ticks; each prescaler expiry decrements TIM,
+ * except when TIM is 0, when TIM reloads from PRD, IFR's TINT bit is
+ * set and timer_exp counts one expiry.  The timer is frozen while
+ * TSS is set.  TIM needs t0+1 expiries for its first reload (t0 steps
+ * down to 0, then one more reloads it), and prd+1 expiries per reload
+ * after that. */
+static void advance_timer(C5x *c, uint64_t n)
 {
-    for (uint64_t k = c0; k < c->cycles; k++)
-        tick_timer(c);
+    if (c->tss || n == 0)
+        return;
+    int64_t p0 = c->psc;
+    int64_t first = p0 + 1; /* ticks to the next prescaler expiry */
+    if (first < 1)
+        first = 1;
+    if ((uint64_t)first > n) {
+        c->psc = (int)(p0 - (int64_t)n);
+        return;
+    }
+    uint64_t tddr = (uint64_t)c->tcr_tddr;
+    uint64_t rem = n - (uint64_t)first;
+    /* Prescaler expiries in n ticks: one at `first`, then one every
+     * tddr+1 ticks.  Just after an expiry psc holds tddr. */
+    uint64_t e = 1 + rem / (tddr + 1);
+    c->psc = (int)(tddr - (rem % (tddr + 1)));
+    uint64_t t0 = c->tim;
+    if (e <= t0) {
+        c->tim = (uint16_t)(t0 - e);
+        return;
+    }
+    uint64_t e2 = e - (t0 + 1); /* expiries after the first reload */
+    c->timer_exp += 1 + e2 / ((uint64_t)c->prd + 1);
+    c->tim = (uint16_t)(c->prd - (e2 % ((uint64_t)c->prd + 1)));
+    c->ifr |= (uint16_t)(1 << C5X_TINT);
 }
+
+/* Machine cycles until the next TINT expiry from the current timer
+ * state (timer running; callers check TSS first).  At least 1. */
+static uint64_t timer_cycles_to_expiry(C5x *c)
+{
+    int64_t first = (int64_t)c->psc + 1;
+    if (first < 1)
+        first = 1;
+    /* Prescaler expiries still needed: TIM steps to 0, then one more
+     * reloads it and raises TINT (1 expiry when TIM is already 0). */
+    uint64_t need = c->tim == 0 ? 1 : (uint64_t)c->tim + 1;
+    return (uint64_t)first + (need - 1) * ((uint64_t)c->tcr_tddr + 1);
+}
+
+/* Run the timer once per machine cycle elapsed since c0 (orig L639).
+ * The closed-form advance above replaces the per-cycle loop.
+ * PERF2 stage 2: the wrapper is folded into its only caller
+ * (c5x_run), which now calls advance_timer() directly. */
 
 /* Interrupt-hold accounting for this instruction (orig L640-644).
  * Returns 1 when interrupts must be held off after this instruction:
@@ -2449,6 +2662,421 @@ static void apply_ar0_mirror(C5x *c)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* RPTB block replay (PERF2 stage 3)                                   */
+/*                                                                     */
+/* DESIGN.  The profiler (prof2) shows RPTB covering 47.53% of DSP    */
+/* instructions; the ov6/ov7 signal inner loops are the workload.      */
+/* A block is decoded once (blk_decode) into a BlkDec and replayed     */
+/* directly (blk_replay) while the block repeats: the replay skips     */
+/* the per-instruction fetch, the diag branch, instr_cycles (the       */
+/* cycle charge is precomputed per entry), and the repeat/hold         */
+/* guard, but it executes the byte-identical family code through       */
+/* exec1_op, and it runs the byte-identical per-instruction tail:      */
+/* apply_ar0_mirror, handle_braf, advance_timer (per instruction,     */
+/* NOT batched -- the division is overlapped, not on the critical      */
+/* path, and batching would need an expiry countdown plus a            */
+/* may-store catch-up), interrupt_held, the interrupt check with      */
+/* the exact baseline condition, and the stop check.  The cycle        */
+/* budget is honoured per entry (the replay never executes an          */
+/* instruction the main loop would not have, and an interrupt is       */
+/* taken before the budget check, exactly as in the main loop).        */
+/*                                                                     */
+/* EXACTNESS.  A replayed entry must execute exactly what the main     */
+/* loop would have executed, with the same state afterwards:           */
+/*  - Validation: a cached decode is used only when its raw words      */
+/*    still match pm_rd (per-call: validated_seq == run_seq, plus      */
+/*    pm_epoch / bp_epoch / cyc_model), and it is re-decoded when      */
+/*    they do not.  pm_epoch is bumped on every PM/mapping change      */
+/*    (pm_wr, glue loads, LST #1, RCNF/SCNF, PMST writes, c5x_set     */
+/*    ST1/PMST) and on every external dm_wr (unified memory).  A      */
+/*    breakpoint anywhere in the block refuses the decode, and a       */
+/*    breakpoint appearing later is caught by the bp_epoch check.      */
+/*  - In-replay writes: MMR PMST/RPTC/BRCR/PASR/PAER writes and        */
+/*    pm_wr set replay_dirty via blk_state_changed; a dm_wr that       */
+/*    lands on a block program word sets it via blk_store_guard.       */
+/*    The replay checks replay_dirty after every entry and breaks      */
+/*    out (the entry that dirtied the block already executed           */
+/*    correctly; only later entries could be stale).                   */
+/*  - RPT: allowed only when the next entry is an rptc-loop op         */
+/*    (BLK_F_RPTC), which consumes rptc internally to -1; the replay  */
+/*    clamps rptc to 0 afterwards, which is exactly handle_rpt's       */
+/*    else branch.  A trailing RPT (consumer outside the block) is     */
+/*    allowed: the consumer runs in the slow path after the loop.      */
+/*    rep_cont stays 0 throughout the replay (handle_rpt is never      */
+/*    needed: it could only set rep_cont = 0 here), so the cycle       */
+/*    charge is cycm[op] and IN/OUT see rep_cont = 0, as in the        */
+/*    baseline for a bare IN/OUT.  No cyc_adj entry applies: every     */
+/*    opcode it covers is a branch, and all branches are excluded.     */
+/*  - XC: allowed with skip handling -- after an XC entry the next     */
+/*    entry is found by pc through idx_of, so a skip to another        */
+/*    entry start continues in the block and a skip elsewhere (or      */
+/*    past the block) breaks out to the slow path, which executes      */
+/*    the skipped-to word as a fresh opcode exactly as the baseline    */
+/*    would.  The XC uninterruptible window runs through the real      */
+/*    interrupt_held, with words maintained per entry.                 */
+/*  - handle_braf runs after every entry (as in the main loop), so     */
+/*    an XC skip landing on paer+1 triggers the block-end test         */
+/*    exactly as the baseline does, and a rewind restarts the block    */
+/*    from entry 0.  The quirk where an XC skip past paer+1 leaves     */
+/*    braf set is preserved: the replay hands off to the slow path,    */
+/*    which keeps the same braf state.                                 */
+/*  - Interrupts: the check uses the live rptc / rep_cont / intm /    */
+/*    ifr / imr, and check_int is the real one (with its 4-cycle      */
+/*    tick_timer entry cost).  An interrupt taken mid-block breaks     */
+/*    out to the main loop, which executes the ISR; the remainder      */
+/*    of the interrupted iteration runs slow (58k in-block interrupts  */
+/*    x ~11 instructions per 20 s -- negligible).  Mid-block re-entry  */
+/*    after an ISR return is NOT supported and is not needed: the      */
+/*    return lands on pasr only if the ISR returned there, and the     */
+/*    main loop then re-enters through the normal hook.                */
+/*  - diag: the replay requires !diag, so the Python .so / stats       */
+/*    harness keeps exact per-instruction diagnostic counts (the C     */
+/*    driver runs with diag off).                                      */
+/*  - 2-word entries: the replay sets pc = ppc+1 and words = 1        */
+/*    before exec1_op, so the family's fetch() reads the second word   */
+/*    at ppc+1 exactly as exec1+fetch do; after the entry pc is        */
+/*    ppc+words.  A 2-word entry straddling paer refuses the decode.   */
+/* ------------------------------------------------------------------ */
+
+/* Classify one opcode word for block replay.  Returns the entry word
+ * count (1 or 2) and fills *flags; returns 0 when the opcode cannot
+ * replay.  The classification mirrors the exec_hi_* families exactly:
+ * every opcode they execute is either allowed here with its true
+ * word count and flags, or excluded.  Excluded: branches/calls/
+ * returns of every kind (incl. delayed), RPTB, the PM writers
+ * (SMMR/BLDP/TBLW), the mapping changers (LST #1, RCNF/SCNF),
+ * IDLE/IDLE2, EINT, NMI/INTR/TRAP, and the BADOP opcodes. */
+static int blk_classify(uint16_t op, uint8_t *flags)
+{
+    uint8_t hi = (uint8_t)(op >> 8);
+    uint8_t lo = (uint8_t)op;
+    uint8_t f = 0;
+    int w = 1;
+
+    if (hi <= 0x0F) {
+        switch (hi) {
+        case 0x09: return 0; /* SMMR: PM writer */
+        case 0x0B: f = BLK_F_RPT; break; /* RPT dma */
+        case 0x0C: w = 2; break; /* OUT: io_write only, not a dm_wr store */
+        case 0x0F: return 0; /* LST #1: CNF change */
+        default: break; /* LAR/LAMM/SUBC/LDP/LST #0 */
+        }
+    } else if (hi <= 0x3F) {
+        /* LACC/ADD/SUB/BIT: 1 word, no store, no branch. */
+    } else if (hi <= 0x5F) {
+        if (hi == 0x56) return 0; /* BADOP */
+        if (hi == 0x57) return 0; /* BLDP: PM writer */
+        if (hi >= 0x58 && hi <= 0x5A) f = BLK_F_STORE; /* XPL/OPL/APL dbmr */
+        else if (hi >= 0x5C && hi <= 0x5E) { w = 2; f = BLK_F_STORE; } /* #lk */
+        else if (hi == 0x5F) w = 2; /* CPL #lk: no write */
+        /* 0x40-0x4F BIT, 0x50-0x55 MPY forms, 0x5B CPL dbmr: 1 word. */
+    } else if (hi <= 0x7F) {
+        if (hi >= 0x79 && hi <= 0x7B) return 0; /* B/CALL/BANZ */
+        if (hi >= 0x7D) return 0; /* BD/CALLD/BANZD */
+        /* 0x60-0x78 ALU/loads/ADRK, 0x7C SBRK: 1 word.  LTD/DMOV use
+         * dmov_wr only (internal dmem, never a PM store). */
+    } else if (hi <= 0x9F) {
+        if (hi <= 0x87) f = BLK_F_STORE; /* SAR */
+        else if (hi == 0x88) f = BLK_F_STORE; /* SAMM */
+        else if (hi == 0x89) { w = 2; f = BLK_F_STORE | BLK_F_RPTC; } /* LMMR */
+        else if (hi == 0x8A) f = BLK_F_STORE; /* POPD */
+        /* 0x8B MAR: no store. */
+        else if (hi == 0x8C || hi == 0x8D) f = BLK_F_STORE; /* SPL/SPH */
+        else if (hi == 0x8E || hi == 0x8F) f = BLK_F_STORE; /* SST #0/#1 */
+        else if (hi >= 0x90) f = BLK_F_STORE; /* SACL/SACH */
+    } else if (hi <= 0xAF) {
+        switch (hi) {
+        case 0xA0: break; /* NORM */
+        case 0xA1: return 0; /* BADOP */
+        case 0xA2: case 0xA3: w = 2; f = BLK_F_RPTC; break; /* MAC/MACD */
+        case 0xA4: f = BLK_F_STORE | BLK_F_RPTC; break; /* BLPD bmar */
+        case 0xA5: w = 2; f = BLK_F_STORE | BLK_F_RPTC; break; /* BLPD #pma */
+        case 0xA6: f = BLK_F_STORE | BLK_F_RPTC; break; /* TBLR */
+        case 0xA7: return 0; /* TBLW: PM writer */
+        case 0xA8: case 0xA9: w = 2; f = BLK_F_STORE | BLK_F_RPTC; break; /* BLDD */
+        case 0xAA: case 0xAB: f = BLK_F_RPTC; break; /* MADS/MADD: 1 word */
+        case 0xAC: case 0xAD: f = BLK_F_STORE | BLK_F_RPTC; break; /* BLDD bmar */
+        case 0xAE: w = 2; f = BLK_F_STORE; break; /* SPLK */
+        case 0xAF: w = 2; f = BLK_F_STORE; break; /* IN */
+        }
+    } else if (hi <= 0xBF) {
+        if (hi <= 0xB7) {
+            /* LAR #k8 */
+        } else if (hi == 0xB8 || hi == 0xB9 || hi == 0xBA) {
+            /* ADDK/LACK/SUBK */
+        } else if (hi == 0xBB) {
+            f = BLK_F_RPT; /* RPT #k8 */
+        } else if (hi == 0xBC || hi == 0xBD) {
+            /* LDP #k9 */
+        } else if (hi == 0xBE) {
+            /* 0xBE sub-decoder, on the low byte. */
+            if (lo < 0x20) {
+                switch (lo) {
+                case 0x00: case 0x01: case 0x02: case 0x03:
+                case 0x04: case 0x05: case 0x09: case 0x0A:
+                case 0x0C: case 0x0D: case 0x10: case 0x11:
+                case 0x12: case 0x13: case 0x14: case 0x15:
+                case 0x16: case 0x17: case 0x18: case 0x19:
+                case 0x1A: case 0x1B: case 0x1C: case 0x1D:
+                case 0x1E: case 0x1F:
+                    break; /* ACC ops (exec_be_acc) */
+                default:
+                    return 0; /* BADOP */
+                }
+            } else {
+                switch (lo) {
+                case 0x32: /* POP */
+                case 0x3C: /* PSHA */
+                case 0x41: /* DINT */
+                case 0x42: case 0x43: case 0x46: case 0x47:
+                case 0x48: case 0x49: case 0x4A: case 0x4B:
+                case 0x4C: case 0x4D: case 0x4E: case 0x4F:
+                case 0x58: case 0x59: case 0x5A: case 0x5B:
+                    break; /* flag/status ops, no store/branch */
+                case 0x80: case 0x81: case 0x82: case 0x83:
+                    w = 2; /* MPY/AND/OR/XOR #lk */
+                    break;
+                case 0xC4: case 0xC5:
+                    w = 2; f = BLK_F_RPT; /* RPT/RPTZ #lk */
+                    break;
+                default:
+                    return 0; /* BACC/BACCD/IDLE/CALA/RETI/RETE/CALAD/
+                               * EINT/RCNF/SCNF/TRAP/NMI/RPTB/INTR/BADOP */
+                }
+            }
+        } else { /* 0xBF sub-decoder, on the low byte. */
+            if (lo <= 0x03) {
+                /* SPM */
+            } else if (lo >= 0x08 && lo <= 0x0F) {
+                w = 2; /* LAR #lk */
+            } else if (lo >= 0x44 && lo <= 0x47) {
+                /* CMPR */
+            } else {
+                int h = lo & 0xF0;
+                if (h >= 0x80 && h <= 0xD0) w = 2; /* long-imm ALU */
+                else if (h == 0xE0) { /* SFTA: 1 word */ }
+                else return 0; /* BADOP */
+            }
+        }
+    } else if (hi <= 0xDF) {
+        /* MPY #k13: 1 word. */
+    } else {
+        /* 0xE0-0xFF: only XC replays; every other form branches. */
+        if ((hi >= 0xE4 && hi <= 0xE7) || (hi >= 0xF4 && hi <= 0xF7))
+            f = BLK_F_XC;
+        else
+            return 0; /* BCND/CC/RETC/BCNDD/CCD/RETCD */
+    }
+    *flags = f;
+    return w;
+}
+
+/* Decode the block [pasr, paer] into blk (fresh words via pm_rd).
+ * Returns 1 on success, 0 when the block cannot replay.  On success
+ * the epochs/validation stamp are recorded. */
+static int blk_decode(C5x *c, BlkDec *blk, uint16_t pasr, uint16_t paer)
+{
+    uint16_t len = (uint16_t)(paer - pasr + 1);
+    int n = 0;
+    int i;
+    if (len < 1 || len > BLK_MAX_WORDS)
+        return 0;
+    for (i = 0; i < len; i++) {
+        blk->words[i] = pm_rd(c, (uint16_t)(pasr + i));
+        blk->idx_of[i] = 0xFF;
+        if (c->bp[pasr + i])
+            return 0; /* a breakpoint inside the block: stay slow */
+    }
+    uint16_t off = 0;
+    while (off < len) {
+        uint16_t pc = (uint16_t)(pasr + off);
+        uint8_t flags = 0;
+        int w = blk_classify(blk->words[off], &flags);
+        if (w == 0)
+            return 0;
+        if (off + w > len)
+            return 0; /* a 2-word entry straddling paer */
+        if (n >= BLK_MAX_ENT)
+            return 0;
+        blk->idx_of[off] = (uint8_t)n;
+        blk->e[n].pc = pc;
+        blk->e[n].op = blk->words[off];
+        blk->e[n].cy = c->cyc_model ? cycm[blk->words[off]] : 1;
+        blk->e[n].flags = flags;
+        n++;
+        off = (uint16_t)(off + w);
+    }
+    /* An RPT entry must be followed by an rptc-loop consumer (the
+     * only repeat form the replay implements); a trailing RPT is
+     * allowed, its consumer runs in the slow path after the loop. */
+    for (i = 0; i < n; i++) {
+        if ((blk->e[i].flags & BLK_F_RPT) && i + 1 < n &&
+            !(blk->e[i + 1].flags & BLK_F_RPTC))
+            return 0;
+    }
+    blk->pasr = pasr;
+    blk->paer = paer;
+    blk->n = (uint16_t)n;
+    blk->epoch = c->pm_epoch;
+    blk->bp_epoch = c->bp_epoch;
+    blk->validated_seq = c->run_seq;
+    blk->cyc_model = c->cyc_model;
+    return 1;
+}
+
+/* Find (decoding / validating as needed) the cached block for the
+ * RPTB loop the main loop has just entered (braf set, pc == pasr).
+ * Returns NULL when the block cannot replay.  Validation is
+ * per-call (run_seq) plus the epochs, so a PM change through any
+ * route -- including a dm_wr to external unified memory, which
+ * bumps pm_epoch in dm_wr -- is caught at the next lookup, and a
+ * dirty break-out forces re-validation even within the same call. */
+static BlkDec *blk_lookup(C5x *c)
+{
+    uint16_t pasr, paer;
+    BlkDec *blk;
+    if (c->rptc != 0 || c->rep_cont || c->xc_new || c->xc_left != 0 ||
+        c->int_inh || c->idle || c->stop || c->diag)
+        return NULL;
+    pasr = c->pasr;
+    paer = c->paer;
+    if ((uint16_t)(paer - pasr + 1) > BLK_MAX_WORDS)
+        return NULL;
+    blk = c->blk_cache[pasr & (BLK_CACHE_N - 1)];
+    if (!blk) {
+        blk = (BlkDec *)calloc(1, sizeof(BlkDec));
+        if (!blk)
+            return NULL;
+        c->blk_cache[pasr & (BLK_CACHE_N - 1)] = blk;
+    }
+    if (blk->pasr == pasr && blk->paer == paer && blk->n > 0) {
+        if (blk->validated_seq == c->run_seq &&
+            blk->epoch == c->pm_epoch && blk->bp_epoch == c->bp_epoch &&
+            blk->cyc_model == c->cyc_model && !c->replay_dirty)
+            return blk;
+        /* Something changed since the decode: re-validate the words
+         * (and the breakpoint scan), then keep the decode if they
+         * still match; otherwise fall through to a fresh decode. */
+        uint16_t len = (uint16_t)(paer - pasr + 1);
+        int ok = 1;
+        uint16_t k;
+        for (k = 0; k < len; k++) {
+            if (pm_rd(c, (uint16_t)(pasr + k)) != blk->words[k]) {
+                ok = 0;
+                break;
+            }
+        }
+        if (ok) {
+            for (k = 0; k < len; k++) {
+                if (c->bp[pasr + k]) {
+                    ok = 0;
+                    break;
+                }
+            }
+        }
+        if (ok) {
+            if (blk->cyc_model != c->cyc_model) {
+                /* Cycle model toggled since the decode: refresh the
+                 * per-entry charges, else the replay would charge
+                 * the stale model (verifier note, PERF2.md §12;
+                 * cannot fire in the shipped driver — the only
+                 * c5x_set_cycle_model caller is setup — but an
+                 * out-of-tree .so user could toggle it). */
+                for (k = 0; k < blk->n; k++)
+                    blk->e[k].cy = c->cyc_model ? cycm[blk->e[k].op] : 1;
+                blk->cyc_model = c->cyc_model;
+            }
+            blk->epoch = c->pm_epoch;
+            blk->bp_epoch = c->bp_epoch;
+            blk->validated_seq = c->run_seq;
+            return blk;
+        }
+    }
+    if (!blk_decode(c, blk, pasr, paer))
+        return NULL;
+    return blk;
+}
+
+/* Replay a validated block.  Returns BLK_CONT (resume the main loop),
+ * RUN_STOP, or RUN_BADOP.  The per-entry tail is the main loop's
+ * tail, in the same order, with the same functions: apply_ar0_mirror,
+ * the rptc clamp (handle_rpt's else branch, the only part that can
+ * fire here), handle_braf, advance_timer over the entry's exact
+ * cycles, interrupt_held, the interrupt check, and the stop check.
+ * The budget check follows the interrupt check, as in the main loop
+ * (an interrupt pending at the budget end is still taken). */
+static int blk_replay(C5x *c, BlkDec *blk, uint64_t end)
+{
+    int i = 0;
+    c->replay_active = 1;
+    c->replay_dirty = 0;
+    c->replay_lo = blk->pasr;
+    c->replay_hi = blk->paer;
+    for (;;) {
+        BlkEnt *e = &blk->e[i];
+        uint16_t ppc = e->pc;
+        uint64_t c0 = c->cycles;
+        int held;
+        c->cur_pc = ppc;
+        c->op = e->op;
+        c->pc = (uint16_t)(ppc + 1);
+        c->words = 1;
+        c->cycles += e->cy;
+        exec1_op(c, e->op);
+        if (c->status == RUN_BADOP) {
+            c->pc = ppc;
+            c->replay_active = 0;
+            return RUN_BADOP;
+        }
+        apply_ar0_mirror(c);
+        if ((e->flags & BLK_F_RPTC) && c->rptc < 0)
+            c->rptc = 0;
+        handle_braf(c);
+        advance_timer(c, c->cycles - c0);
+        held = interrupt_held(c);
+        if (c->int_inh)
+            c->int_inh = 0;
+        else if (!held && c->rptc <= 0 && !c->rep_cont && !c->intm &&
+                 (c->ifr & c->imr))
+            check_int(c);
+        if (c->stop) {
+            c->replay_active = 0;
+            return RUN_STOP;
+        }
+        if (c->cycles >= end) {
+            c->replay_active = 0;
+            return BLK_CONT;
+        }
+        if (c->replay_dirty) {
+            c->replay_active = 0;
+            return BLK_CONT;
+        }
+        if (!c->braf) {
+            c->replay_active = 0;
+            return BLK_CONT;
+        }
+        /* Next entry by pc: straight-line, a handle_braf rewind to
+         * pasr, or an XC skip to another entry start.  Any other pc
+         * leaves the block (the slow path executes the skipped-to
+         * word as a fresh opcode, exactly as the baseline would). */
+        {
+            uint16_t off = (uint16_t)(c->pc - c->pasr);
+            uint8_t j;
+            if (off > (uint16_t)(c->paer - c->pasr)) {
+                c->replay_active = 0;
+                return BLK_CONT;
+            }
+            j = blk->idx_of[off];
+            if (j == 0xFF) {
+                c->replay_active = 0;
+                return BLK_CONT;
+            }
+            i = j;
+        }
+    }
+}
+
 /* Run until the cycle budget is exhausted.  Returns RUN_OK, RUN_BP,
  * RUN_BADOP, or RUN_STOP. */
 int c5x_run(C5x *c, uint64_t budget)
@@ -2457,23 +3085,54 @@ int c5x_run(C5x *c, uint64_t budget)
     int first = 1;
     c->stop = 0;
     c->status = RUN_OK;
+    c->run_seq++; /* per-call validation stamp for the block cache */
     while (c->cycles < end) {
         uint64_t c0 = c->cycles;
         if (c->idle) {
             /* IDLE2 (idle == 2) wakes only on INT1-4 (IFR/IMR bits
              * 0,1,2,8 = mask 0x107); IDLE wakes on any unmasked
              * interrupt (orig L611). */
-            if (c->ifr & c->imr & (c->idle == 2 ? 0x107 : 0xFFFF)) {
+            uint16_t wake = (uint16_t)(c->idle == 2 ? 0x107 : 0xFFFF);
+            if (c->ifr & c->imr & wake) {
                 c->idle = 0;
                 check_int(c);
                 continue;
             }
-            /* Skip forward one cycle at a time (timer granularity);
-             * IDLE2 stops the timer. */
-            c->cycles++;
-            c->idle_cycles++;
-            if (c->idle == 1)
-                tick_timer(c);
+            /* Fast-forward: nothing else can change IFR while idle
+             * (interrupts and serial ticks arrive only between
+             * c5x_run calls), so the only event before the budget
+             * ends is a timer expiry -- and only if TINT is unmasked
+             * (otherwise the timer still advances, but the DSP
+             * sleeps through its expiries).  The timer state is
+             * advanced in closed form by advance_timer(), which is
+             * exactly equivalent to one tick_timer() per cycle, so
+             * timer expiries, IFR/TINT, idle_cycles and the
+             * interrupt-entry cycle are all preserved. */
+            uint64_t remain = end - c->cycles;
+            if (c->idle == 2 || c->tss) {
+                /* IDLE2 stops the timer; a stopped timer never
+                 * ticks, and no wake can arrive before the budget
+                 * ends. */
+                c->cycles = end;
+                c->idle_cycles += remain;
+                continue;
+            }
+            if (c->imr & (uint16_t)(1 << C5X_TINT)) {
+                /* Jump to the next TINT expiry (or the budget end,
+                 * whichever comes first); the loop top then takes
+                 * the interrupt at exactly the expiry cycle. */
+                uint64_t d = timer_cycles_to_expiry(c);
+                uint64_t step = d < remain ? d : remain;
+                advance_timer(c, step);
+                c->cycles += step;
+                c->idle_cycles += step;
+            } else {
+                /* TINT masked: sleep through every expiry to the
+                 * budget end; the timer still counts them. */
+                advance_timer(c, remain);
+                c->cycles = end;
+                c->idle_cycles += remain;
+            }
             continue;
         }
         if (c->bp[c->pc] && !first) {
@@ -2489,26 +3148,65 @@ int c5x_run(C5x *c, uint64_t budget)
         if (c->cyc_model)
             c->cycles += (uint64_t)(instr_cycles(c, ppc, sp0) - 1);
         apply_ar0_mirror(c);
-        c->ar0_prev = c->ar[0];
+        /* PERF2 stage 1: ar0_prev store removed (write-only, see above). */
         if (c->status == RUN_BADOP) {
             c->pc = ppc;
             return RUN_BADOP;
         }
-        handle_rpt(c, ppc);
-        handle_braf(c);
-        tick_timers_for(c, c0);
-        int held = interrupt_held(c);
+        /* PERF2 stage 2: the three repeat/hold helpers are merged
+         * behind one cheap guard.  handle_rpt, handle_braf and
+         * interrupt_held are each almost always a no-op, but each
+         * costs its own tests (and handle_rpt's else branch stores
+         * rptc = 0 / rep_cont = 0 on every instruction).  The guard
+         * is exact, not heuristic: when rptc == 0 and rep_cont == 0
+         * handle_rpt's else branch would store the values already
+         * there; when braf == 0 handle_braf does nothing; when
+         * xc_new == 0, xc_left == 0 and braf == 0 interrupt_held
+         * returns 0 and stores xc_left = 0, the value already there.
+         * (rptc must be == 0, not <= 0: block instructions can leave
+         * rptc == -1, and only the slow path clamps it to 0.)
+         * Measured in a scratch instrumented build (20 s call): the
+         * guard is true for 354.3M of 583.5M loop iterations
+         * (60.7%); braf is set for 35.9%, rptc > 0 for 1.9%,
+         * xc active for 2.3%.  The slow path keeps the original
+         * order (rpt, braf, timer, held). */
+        int rep_fast = (c->rptc == 0 && !c->rep_cont && !c->braf &&
+                        !c->xc_new && c->xc_left == 0);
+        if (!rep_fast) {
+            handle_rpt(c, ppc);
+            handle_braf(c);
+        }
+        /* PERF2 stage 2: tick_timers_for() folded in (it was a thin
+         * wrapper over advance_timer, called once per instruction). */
+        advance_timer(c, c->cycles - c0);
+        int held = rep_fast ? 0 : interrupt_held(c);
         /* A single-instruction RPT repeat is not interruptible on the
          * real C5x (orig L645).  EINT's one-cycle inhibit (int_inh)
-         * is consumed here whether or not an interrupt was pending. */
+         * is consumed here whether or not an interrupt was pending.
+         * The check_int() fast path (masked off, or nothing pending)
+         * is inlined: it fires on ~92% of instructions. */
         if (c->int_inh)
             c->int_inh = 0;
         else if (held)
             ;
-        else if (c->rptc <= 0 && !c->rep_cont)
+        else if (c->rptc <= 0 && !c->rep_cont && !c->intm &&
+                 (c->ifr & c->imr))
             check_int(c);
         if (c->stop)
             return RUN_STOP;
+        /* PERF2 stage 3: RPTB block replay.  Fires when the slow path
+         * has just executed RPTB (braf set, pc at the block start) or
+         * an ISR returned there.  Only when budget remains: the
+         * replay's per-entry budget check then guarantees it never
+         * executes an instruction the main loop would not have. */
+        if (c->braf && c->pc == c->pasr && !c->diag && c->cycles < end) {
+            BlkDec *blk = blk_lookup(c);
+            if (blk) {
+                int r = blk_replay(c, blk, end);
+                if (r != BLK_CONT)
+                    return r;
+            }
+        }
     }
     return RUN_OK;
 }
@@ -2554,6 +3252,10 @@ void c5x_set_xint_mode(C5x *c, int m)
     c->xint_first = 1;
 }
 void c5x_set_cycle_model(C5x *c, int m) { c->cyc_model = m; }
+/* Diagnostics gate: 0 = skip the per-instruction / per-access counters
+ * listed at the `diag` field (default 1 = on, the historical behaviour).
+ * The C driver disables them; the .so / ctypes ABI is unchanged. */
+void c5x_set_diag(C5x *c, int on) { c->diag = on ? 1 : 0; }
 /* API stub: nothing reads `legacy` any more (orig L665). */
 void c5x_set_legacy(C5x *c, int m) { c->legacy = m; }
 uint64_t c5x_idle_cycles(C5x *c) { return c->idle_cycles; }
@@ -2578,6 +3280,8 @@ void c5x_set_watch(C5x *c, int32_t a)
     memset(c->watch_hits, 0, sizeof c->watch_hits);
 }
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc) { return c->watch_hits[pc & 0xFFFF]; }
+uint32_t c5x_pc_hits(C5x *c, uint32_t pc) { return c->pc_hits[pc & 0xFFFF]; }
+void c5x_pc_hits_clear(C5x *c) { memset(c->pc_hits, 0, sizeof c->pc_hits); }
 void c5x_set_trace(C5x *c, int32_t pc)
 {
     c->trace_pc = pc;

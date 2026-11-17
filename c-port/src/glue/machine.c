@@ -564,6 +564,7 @@ static void dsp_load_pm(C5x *dsp, uint16_t addr, const uint8_t *blob, size_t len
     size_t n = len / 2;
     for (size_t i = 0; i < n; i++)
         pm[(addr + i) & 0xFFFF] = (uint16_t)(blob[2 * i] | (blob[2 * i + 1] << 8));
+    c5x_pm_invalidate(dsp);
 }
 
 Machine *machine_new(const Config *cfg)
@@ -769,6 +770,7 @@ void machine_start_dsp(Machine *m)
     for (size_t i = 0; i < m->dsp_bursts_n; i++)
         memcpy(flat + i * 8, m->dsp_bursts + i * 8, 8);
     m->dsp = c5x_new();
+    c5x_set_diag(m->dsp, 0);   /* replay needs diagnostics off */
     dsp_load_pm(m->dsp, 0x8000, flat + 16, take);
     free(flat);
     m->sender_mode = 0;
