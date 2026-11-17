@@ -60,7 +60,7 @@
 const LOOKAHEAD_S = 0.1;    // 100 ms of line latency (absorbs browser message jitter)
 const GAIN = 0.5;           // link default
 const scriptA = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r']];   // answerer: host answers RING with ATA
-const scriptB = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r'], [3.0, 'ATDT5551234\r']];  // caller dials 7 digits; the line supplies dial tone
+const scriptB = [[1.0, 'AT\r'], [2.0, 'ATQ0V1X3\r'], [3.0, 'ATDT5551234\r']];  // caller dials 7 digits; X3 (no dial tone)
 
 const $ = (id) => document.getElementById(id);
 const logEls = { A: $('log-A'), B: $('log-B') }, statusEl = $('status');
@@ -266,7 +266,7 @@ $('go').addEventListener('click', () => {
     w.onmessage = (e) => onMessage(role, e.data);
     w.onerror = (e) => { statusEl.textContent = role + ' worker error: ' + e.message; $('go').disabled = false; };
     workers[role] = w;
-    w.postMessage({ init: true, role, script, lookaheadS: LOOKAHEAD_S, dialTone: role === 'B', port: ch.port1 }, [ch.port1]);
+    w.postMessage({ init: true, role, script, lookaheadS: LOOKAHEAD_S, dialTone: false, port: ch.port1 }, [ch.port1]);
   }
 });
 </script>

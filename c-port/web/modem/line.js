@@ -13,8 +13,8 @@ const outWav = path.join('out', 'modem_line.wav');
 // Setup, as call.conf has it; the answerer autoanswers and the caller dials.
 const scriptA = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r']];   // answerer: host answers RING with ATA
 const dialNumber = process.env.DIAL || '5551234';
-const setupB = process.env.X3 ? 'ATQ0V1X3\r' : 'ATQ0V1\r';
-const toneOnB = process.env.NOTONE ? false : true;   // dial tone from the line for the caller
+const setupB = 'ATQ0V1X3\r';   // X3: no dial-tone detection
+const toneOnB = false;   // no line dial tone (X3 is set)
 const scriptB = [[1.0, 'AT\r'], [2.0, setupB], [3.0, `ATDT${dialNumber}\r`]];
 
 const rec = { A: [], B: [] };
