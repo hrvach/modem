@@ -5,62 +5,194 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Courier modems</title>
 <style>
-  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: #f6f6f4; color: #1d1d1b; }
-  main { padding: .9rem 1.2rem; }
-  .controls { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-  button { font: inherit; padding: .45rem 1rem; border-radius: 6px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; cursor: pointer; }
-  button:disabled { opacity: .5; }
-  label { color: #6b6b66; }
-  input { width: 4.5rem; font: inherit; }
-  #status { color: #6b6b66; }
-  .modems { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: .8rem 0; }
-  .modem { min-width: 0; }
-  .mtitle { font-weight: 600; margin-bottom: .3rem; }
-  .modem svg { width: 100%; max-width: 520px; height: auto; display: block; }
-  pre { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: .5rem; height: 34vh; overflow: auto; font: 12px/1.35 ui-monospace, monospace; margin: .6rem 0 0; }
-  .send { display: flex; gap: .4rem; margin: .4rem 0 0; }
-  .send input { flex: 1; min-width: 0; font: inherit; padding: .35rem .5rem; border: 1px solid #ccc; border-radius: 6px; }
-  .send button { font: inherit; padding: .35rem .8rem; }
-  table { border-collapse: collapse; font-size: .92rem; }
-  td { padding: .25rem 1.4rem .25rem 0; border-bottom: 1px solid #ccc; }
-  td:first-child { color: #6b6b66; white-space: nowrap; }
-  @media (max-width: 800px) { .modems { grid-template-columns: 1fr; } }
+  @font-face { font-family: 'VT100'; src: url('vt100-regular.ttf') format('truetype'); }
+  :root { --bg: #f5f6f8; --card: #fff; --line: #e3e6ea; --ink: #1c1f24; --mute: #6b7280; --blue: #3b5bdb; --blue-soft: #a6b8f2;
+          --green: #6fdc6f; --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--ink); }
+  main { padding: .9rem 1.2rem 1.5rem; max-width: 1560px; margin: 0 auto; }
+  button { font: inherit; padding: .5rem 1.05rem; border-radius: 6px; border: 1px solid var(--blue); background: var(--blue); color: #fff; cursor: pointer; }
+  button:disabled { background: var(--blue-soft); border-color: var(--blue-soft); cursor: default; }
+  button.ghost { background: #fff; color: var(--ink); border-color: var(--line); padding: .3rem .7rem; }
+  button.ghost:hover { border-color: #c7ccd3; }
+  label { color: var(--mute); }
+  select { font: inherit; padding: .3rem .4rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .bar-left { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  #status { color: var(--mute); }
+  .pill { display: inline-flex; align-items: center; gap: .5rem; font: 12px var(--mono); letter-spacing: .03em; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: #9aa1ab; display: inline-block; }
+  .pill.on i { background: #2f9e44; } .pill.warn i { background: #e8890c; }
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 250px minmax(0, 1fr); gap: 1.2rem; margin: 1rem 0 .6rem; align-items: start; }
+  .modem { min-width: 0; width: 100%; }
+  .mhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .45rem; }
+  .mtitle { font-weight: 600; } .mmeta { font: 12px var(--mono); color: var(--mute); }
+  .modem svg { width: 100%; height: auto; display: block; }
+  .term { background: #0a0c0b; border-radius: 10px; overflow: hidden; margin-top: .6rem; display: flex; flex-direction: column; }
+  .term pre { background: transparent; color: var(--green); margin: 0; padding: .65rem .8rem; height: 27vh; min-height: 180px; overflow: auto; font: 17px/1.35 VT100, ui-monospace, monospace; outline: none; }
+  .term form.send { display: flex; align-items: center; gap: .5rem; border-top: 1px solid #1a1f1c; padding: .3rem .6rem; }
+  .term .prompt { color: #3f8f4a; font-family: var(--mono); }
+  .term input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--green); font: 14px var(--mono); padding: .35rem 0; }
+  .term input::placeholder { color: #2c5c36; }
+  .term button.ghost { background: transparent; color: #7fae85; border-color: #26302a; padding: .2rem .55rem; font-size: 12px; }
+  .dialled { font: 14px var(--mono); color: #2f9e44; margin: .5rem 0 0; min-height: 1.3em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .8rem .9rem; }
+  .cap { font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
+  .chead { display: flex; justify-content: space-between; align-items: center; margin-bottom: .6rem; }
+  .chead b { font: 600 13px var(--mono); letter-spacing: .06em; }
+  .tag { font: 11px var(--mono); color: var(--mute); background: #eef0f3; border-radius: 5px; padding: .1rem .45rem; }
+  .row { display: flex; justify-content: space-between; align-items: center; font: 12px var(--mono); background: #f3f4f6; border-radius: 6px; padding: .4rem .6rem; margin-bottom: .4rem; }
+  .row b { font-weight: 600; }
+  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: .3rem; margin: .45rem 0 .7rem; }
+  .keys span { text-align: center; font: 12px var(--mono); padding: .35rem 0; border-radius: 5px; background: #f3f4f6; color: #555b64; border: 1px solid #eceef1; }
+  .keys span.hot { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .ringbar { height: 6px; border-radius: 3px; background: #eceef1; overflow: hidden; margin: .15rem 0 .55rem; }
+  .ringbar i { display: block; height: 100%; width: 0; background: #e8890c; transition: width .25s; }
+  .ringbar.on i { width: 100%; }
+  .lower { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(0, 1.7fr) minmax(250px, 1fr); gap: 1.2rem; margin-top: 1.1rem; align-items: stretch; }
+  .kv { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-bottom: 1px solid var(--line); font-size: .93rem; }
+  .kv span { color: var(--mute); } .kv b { font-weight: 500; text-align: right; }
+  .now { margin-top: .9rem; } .now p { margin: .35rem 0 0; line-height: 1.5; }
+  .scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 310px)); gap: 1.4rem; justify-content: center; }
+  .scopebox { min-width: 0; }
+  .shead, .sfoot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  .shead { margin-bottom: .45rem; } .sfoot { margin-top: .5rem; font-size: .82rem; }
+  .shead b { font: 600 12px var(--mono); letter-spacing: .06em; } .shead .tag { background: #e9f6ec; color: #2b7a3d; }
+  .ctl { display: flex; align-items: center; gap: .4rem; } .ctl select { padding: .15rem .3rem; font-size: .82rem; } .ctl button { padding: .15rem .55rem; font-size: .8rem; }
+  .ro { font: 12px var(--mono); color: var(--mute); }
+  .wavebox { margin-top: 1rem; }
+  canvas.wave { display: block; width: 100%; height: auto; aspect-ratio: 6 / 1; background: #090c0b; border-radius: 10px; border: 1px solid #1d2622; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: #fff; color: var(--mute); padding: .25rem .7rem; font: 600 13px var(--mono); cursor: pointer; display: inline-flex; align-items: center; gap: .4rem; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--blue); color: #fff; }
+  .seg button.on .tag { background: rgba(255,255,255,.2); color: #fff; }
+  canvas.scope { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #090c0b; border-radius: 10px; border: 1px solid #1d2622; }
+  .stack { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
+  .nrow { display: flex; justify-content: space-between; font-size: .93rem; margin-bottom: .3rem; } .nrow span { color: var(--mute); } .nrow b { font: 500 12px var(--mono); }
+  input[type=range] { width: 100%; accent-color: var(--blue); margin: .2rem 0 .1rem; }
+  .linkbtn { background: none; border: 0; color: var(--blue); padding: 0; font-size: 12px; cursor: pointer; } .linkbtn:disabled { color: var(--blue-soft); }
+  .load { width: 100%; border-collapse: collapse; font-size: .93rem; }
+  .load th { font: 11px var(--mono); letter-spacing: .08em; color: var(--mute); text-align: right; font-weight: 500; padding: 0 0 .4rem; }
+  .load th:first-child { text-align: left; }
+  .load td { padding: .5rem 0; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+  .load td:first-child { text-align: left; color: var(--mute); white-space: nowrap; padding-right: 1rem; }
+  @media (max-width: 1250px) { .lower { grid-template-columns: 1fr 1fr; } .scopecard { grid-column: 1 / -1; order: -1; } }
+  @media (max-width: 1000px) { .stage, .lower { grid-template-columns: 1fr; } .scopes { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <main>
-  <div class="controls">
-    <button id="go">Start call</button>
-    <button id="hangup" disabled>Hang up</button>
-    <span id="status">Idle.</span>
-  </div>
-  <div class="modems">
+  <header class="bar">
+    <div class="bar-left">
+      <button id="go">Power on</button>
+      <button id="dial" disabled>Start call</button>
+      <button id="rand" disabled>Send 32 kB random</button>
+      <button id="hangup" disabled>Hang up</button>
+      <label>Connect speed <select id="speed" title="Applies at Power on: both modems get AT&N with this value. Fewer bits per symbol means fewer points in the constellation.">
+        <option value="">Auto (up to 33600)</option>
+        <option value="6">9600 &mdash; 12 dots</option>
+        <option value="7">12000 &mdash; 16 dots</option>
+        <option value="8">14400 &mdash; 28 dots</option>
+        <option value="9">16800 &mdash; 48 dots</option>
+      </select></label>
+      <span id="status">Idle.</span>
+    </div>
+    <div class="pill" id="linepill"><i></i><span id="linetext">POWER OFF</span></div>
+  </header>
+  <div class="stage">
     <section class="modem">
-      <div class="mtitle">A &middot; answerer</div>
+      <div class="mhead"><span class="mtitle">A &middot; answerer</span><span class="mmeta">answers on RING</span></div>
       <div id="panel-A"></div>
-      <pre id="log-A"></pre>
-      <form class="send" data-role="A"><input type="text" placeholder="type here: goes out of modem A to B" autocomplete="off"><button>Send</button></form>
+      <div class="term"><pre id="log-A"></pre>
+        <form class="send" data-role="A"><span class="prompt">&gt;</span><input type="text" placeholder="Type AT command or message..." autocomplete="off"><button class="ghost">Send</button><button type="button" class="ghost esc" title="Back to command mode without hanging up: sends +++ after a guard time of silence">+++</button></form></div>
+      <div class="dialled">dialled: <span id="dialled-A"></span></div>
     </section>
+    <aside class="card" id="exch">
+      <div class="chead"><b>EXCHANGE</b><span class="tag" id="exch-tag">IDLE</span></div>
+      <div class="row"><span>LINE A</span><b id="hook-A">ON-HOOK 48V</b></div>
+      <div class="row"><span>LINE B</span><b id="hook-B">ON-HOOK 48V</b></div>
+      <div class="chead" style="margin:.8rem 0 0"><span class="cap">DTMF decoder</span><span class="cap" id="dtmf-hz" style="color:var(--blue)">-- / -- Hz</span></div>
+      <div class="keys" id="keys"></div>
+      <div class="chead" style="margin:0"><span class="cap">Ring gen</span><span class="cap" id="ring-v">0V / OFF</span></div>
+      <div class="ringbar" id="ringbar"><i></i></div>
+      <div class="cap" id="hybrid" style="text-transform:none;letter-spacing:0">2-wire hybrid open</div>
+    </aside>
     <section class="modem">
-      <div class="mtitle">B &middot; caller</div>
+      <div class="mhead"><span class="mtitle">B &middot; caller</span><span class="mmeta">dials 555-1234</span></div>
       <div id="panel-B"></div>
-      <pre id="log-B"></pre>
-      <form class="send" data-role="B"><input type="text" placeholder="type here: goes out of modem B to A" autocomplete="off"><button>Send</button></form>
+      <div class="term"><pre id="log-B"></pre>
+        <form class="send" data-role="B"><span class="prompt">&gt;</span><input type="text" placeholder="Type ATDT 5551234 or chat text..." autocomplete="off"><button class="ghost">Send</button><button type="button" class="ghost esc" title="Back to command mode without hanging up: sends +++ after a guard time of silence">+++</button></form></div>
+      <div class="dialled">dialled: <span id="dialled-B"></span></div>
     </section>
   </div>
-  <table>
-    <tr><td>Connect</td><td id="t-connect">-</td></tr>
-    <tr><td>Messages</td><td id="t-msgs">-</td></tr>
-    <tr><td>Sim time reached</td><td id="t-sim">-</td></tr>
-    <tr><td>Speed per modem</td><td id="t-rate">-</td></tr>
-  </table>
+  <div class="lower">
+    <div class="card">
+      <div class="chead"><b>CALL</b><span class="tag" id="call-tag">IDLE</span></div>
+      <div class="kv"><span>Connect</span><b id="t-connect">-</b></div>
+      <div class="kv"><span>Messages</span><b id="t-msgs">-</b></div>
+      <div class="kv"><span>Sim time reached</span><b id="t-sim">-</b></div>
+      <div class="now"><div class="cap">What the modem is doing</div><p id="narrative">Powered off. Press Power on to start both modems.</p></div>
+    </div>
+    <div class="card scopecard">
+      <div class="chead"><b>INSTRUMENTS</b>
+        <span class="seg" role="group" aria-label="Modem">
+          <button type="button" class="on" data-side="A">A <span class="tag" id="stag-A">IDLE</span></button><button type="button" data-side="B">B <span class="tag" id="stag-B">IDLE</span></button>
+        </span>
+      </div>
+      <div class="scopes">
+        <div class="scopebox">
+          <div class="shead"><b>I / Q</b><span class="tag" title="The points the selected modem transmits (the mapper's output), read from DSP data memory 0x0224 / 0x0228. Not the received, equalized points.">transmitted points</span></div>
+          <canvas class="scope" id="scope-iq" width="440" height="440"></canvas>
+          <div class="sfoot"><span class="ctl"><label>zoom</label><select id="iq-zoom"><option value="auto">auto</option><option value="1">&times;1</option><option value="2">&times;2</option><option value="4">&times;4</option></select><button type="button" class="ghost" id="iq-reset">reset</button></span><span class="ro" id="ro-iq"></span></div>
+        </div>
+        <div class="scopebox">
+          <div class="shead"><b>SPECTRUM</b><span class="tag" title="Frequency content of the audio the selected modem puts on the line (1024-point FFT, Hann window).">audio sent</span></div>
+          <canvas class="scope" id="scope-fft" width="440" height="440"></canvas>
+          <div class="sfoot"><span class="ro">0 &ndash; <span id="fft-nyq">3.6</span> kHz &middot; dB full scale</span><span class="ro" id="ro-fft"></span></div>
+        </div>
+      </div>
+      <div class="wavebox">
+        <div class="shead"><b>SIGNAL</b><span class="tag" title="The samples the selected modem sends, as they leave the codec. Last 512 samples, started on a rising zero crossing.">audio sent &middot; raw</span></div>
+        <canvas class="wave" id="scope-wave" width="900" height="150"></canvas>
+        <div class="sfoot"><span class="ro" id="wave-span">-</span><span class="ro" id="wave-pk">-</span></div>
+      </div>
+    </div>
+    <div class="stack">
+    <div class="card">
+      <div class="chead"><b>LINE NOISE</b><button type="button" class="linkbtn" id="noise-clean">Clean line</button></div>
+      <div class="nrow"><span>White noise (AWGN)</span><b id="noise-val">0% &middot; clean</b></div>
+      <input type="range" id="noise" min="0" max="30" step="0.5" value="0" title="Noise added to what each modem hears, as a percentage of a typical received signal level">
+      <div class="cap" style="text-transform:none;letter-spacing:0;margin-top:.35rem">Added to what each modem hears. 100% would equal the signal.</div>
+    </div>
+    <div class="card">
+      <div class="chead"><b>MODEM LOAD</b><span class="tag">simulation</span></div>
+      <table class="load">
+        <tr><th></th><th>A</th><th>B</th></tr>
+        <tr><td>Sim time</td><td id="s-A-sim">-</td><td id="s-B-sim">-</td></tr>
+        <tr><td>Speed vs real time</td><td id="s-A-x">-</td><td id="s-B-x">-</td></tr>
+        <tr><td>Text in</td><td id="s-A-bps">-</td><td id="s-B-bps">-</td></tr>
+        <tr><td>CPU</td><td id="s-A-cpu">-</td><td id="s-B-cpu">-</td></tr>
+        <tr><td>Audio buffered</td><td id="s-A-rx">-</td><td id="s-B-rx">-</td></tr>
+      </table>
+    </div>
+    </div>
+  </div>
 </main>
 <script src="panel.js"></script>
 <script>
 const LOOKAHEAD_S = 0.1;    // 100 ms of line latency (absorbs browser message jitter)
 const GAIN = 0.5;           // link default
-const scriptA = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r']];   // answerer: host answers RING with ATA
-const scriptB = [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r'], [3.0, 'ATDT5551234\r']];  // caller dials 7 digits; the line supplies dial tone
+// Setup commands each modem runs at Power on. The "Connect speed" pulldown adds AT&N for both modems:
+// 6 = 9600, 7 = 12000, 8 = 14400, 9 = 16800; empty leaves the speed to the modems (33600 on this line).
+function setupScripts() {
+  const n = document.getElementById('speed').value;
+  const speed = n ? [[3.0, 'AT&N' + n + '\r']] : [];
+  return {
+    A: [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r'], ...speed],     // answerer: host answers RING with ATA
+    B: [[1.0, 'AT\r'], [2.0, 'ATQ0V1X3\r'], ...speed],   // setup only; Start call dials 5551234 (X3: no dial tone)
+  };
+}
 
 const $ = (id) => document.getElementById(id);
 const logEls = { A: $('log-A'), B: $('log-B') }, statusEl = $('status');
@@ -76,11 +208,60 @@ for (const form of document.querySelectorAll('form.send')) {
     box.value = '';
   });
 }
+// "+++ escape": the Hayes escape back to command mode without hanging up. The modem only treats +++ as an
+// escape after a guard time (S12, 1 s) with nothing sent before it and nothing after it, measured in the
+// modem's simulated time, which can run slower than the wall clock. So the worker sends it, not the page.
+for (const btn of document.querySelectorAll('form.send .esc')) {
+  btn.addEventListener('click', () => {
+    const role = btn.closest('form').dataset.role;
+    if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
+    workers[role].postMessage({ cmd: 'escape' });
+    statusEl.textContent = 'Modem ' + role + ': +++ goes out after 1.2 s of modem time of silence; do not type for ~2.5 s. When OK appears you are in command mode: ATO returns online, ATH hangs up.';
+  });
+}
 let workers = {}, rec = { A: [], B: [] }, dte = { A: '', B: '' }, doneCount = 0;
+// Characters each modem has received from the far end, for the text-in rate.
+const textIn = { A: 0, B: 0 }, textLast = { A: 0, B: 0 }, textWall = { A: 0, B: 0 };
 let stats = {};
 let ataSent = false;
 let panels = {};
-let lineW = null;
+
+// Line noise slider: white noise added to what each modem hears (see worker.js), live during a call.
+function applyNoise() {
+  const pct = Number($('noise').value), snr = pct > 0 ? -20 * Math.log10(pct / 100) : Infinity;
+  $('noise-val').textContent = pct > 0 ? pct.toFixed(1) + '% \u00b7 about ' + snr.toFixed(0) + ' dB SNR' : '0% \u00b7 clean';
+  for (const w of Object.values(workers)) w.postMessage({ noise: pct / 100 });
+}
+$('noise').addEventListener('input', applyNoise);
+$('noise-clean').addEventListener('click', () => { $('noise').value = 0; applyNoise(); });
+
+// ---- Exchange card, line pill and narrative: what the page knows about the call ----
+let lineState = 'off';
+const OFFHOOK = 'OFF-HOOK 6V', ONHOOK = 'ON-HOOK 48V';
+const LINE_UI = {
+  off:       { pill: 'POWER OFF', cls: '', tag: 'IDLE', a: ONHOOK, b: ONHOOK, hyb: '2-wire hybrid open', ring: false,
+               now: 'Powered off. Press Power on to start both modems.' },
+  standby:   { pill: 'ON-HOOK \u2022 -48V DC', cls: 'on', tag: 'IDLE', a: ONHOOK, b: ONHOOK, hyb: '2-wire hybrid open', ring: false,
+               now: 'On-hook standby. Click Start call, or type ATDT 5551234 in the caller, to start a call.' },
+  dialing:   { pill: 'B OFF-HOOK \u2022 DIALING', cls: 'warn', tag: 'DIALING', a: ONHOOK, b: OFFHOOK, hyb: '2-wire hybrid open', ring: false,
+               now: 'B went off-hook and is sending DTMF digits. The exchange decodes them from B\'s audio, then rings A.' },
+  ringing:   { pill: 'RINGING \u2022 A', cls: 'warn', tag: 'RINGING', a: ONHOOK, b: OFFHOOK, hyb: '2-wire hybrid open', ring: true,
+               now: 'The exchange is ringing A. A sees RING and answers with ATA.' },
+  answering: { pill: 'A ANSWERED \u2022 HANDSHAKE', cls: 'warn', tag: 'ANSWER', a: OFFHOOK, b: OFFHOOK, hyb: '2-wire hybrid closed', ring: false,
+               now: 'A went off-hook. The modems run the V.8 / V.34 handshake: answer tone, capabilities, line probing, training.' },
+  connected: { pill: 'CONNECTED \u2022 2-WIRE', cls: 'on', tag: 'CONNECTED', a: OFFHOOK, b: OFFHOOK, hyb: '2-wire hybrid closed', ring: false,
+               now: 'Connected. Both modems report CONNECT and data crosses the audio line (error control LAPM, compression V.42bis).' },
+};
+function setLine(st) {
+  lineState = st;
+  const u = LINE_UI[st];
+  $('linetext').textContent = u.pill; $('linepill').className = 'pill ' + u.cls;
+  $('exch-tag').textContent = u.tag; $('hook-A').textContent = u.a; $('hook-B').textContent = u.b;
+  $('hybrid').textContent = u.hyb; $('ringbar').className = 'ringbar' + (u.ring ? ' on' : '');
+  $('ring-v').textContent = u.ring ? '90V / ON' : '0V / OFF';
+  $('narrative').textContent = u.now; $('call-tag').textContent = u.tag;
+  if (st !== 'dialing') dtmfShow(null);
+}
 
 // Load the front-panel drawing into both panels (A and B).
 fetch('courier-front-panel.svg').then((r) => r.text()).then((svg) => {
@@ -116,15 +297,66 @@ function audioInit() {
 
 // Audio is batched to ~150 ms per buffer: one playback node per chunk would
 // swamp the main thread and slow the modems down.
-let pendingAudio = { A: [], B: [] }, pendingLen = { A: 0, B: 0 };
+let pendingAudio = { A: [], B: [] }, pendingLen = { A: 0, B: 0 }, pendingRate = { A: 7200, B: 7200 };
 
-function playChunk(role, tx) {
+// One chunk of transmitted audio at codec rate r. A rate change starts a new buffer,
+// since each buffer is played at the rate it was made at.
+// ---- the office: decodes the caller's DTMF digits from its transmit audio, then rings the answerer ----
+const DTMF_LOW = [697, 770, 852, 941], DTMF_HIGH = [1209, 1336, 1477, 1633];
+const DTMF_KEYS = [['1', '2', '3', 'A'], ['4', '5', '6', 'B'], ['7', '8', '9', 'C'], ['*', '0', '#', 'D']];
+const DIAL_DIGITS = 7;
+let dialing = false, dialDigits = 0, dialLast = null, dialBuf = [], dialRate = 0;
+let dialledHeard = '', lastTones = null;
+function startDialing() { dialing = true; dialDigits = 0; dialLast = null; dialBuf = []; dialRate = 0; dialledHeard = ''; $('dialled-A').textContent = ''; }
+function goertzel(block, f, r) {
+  const N = block.length, k = Math.round(N * f / r), coeff = 2 * Math.cos(2 * Math.PI * k / N);
+  let s1 = 0, s2 = 0;
+  for (let i = 0; i < N; i++) { const s0 = block[i] + coeff * s1 - s2; s2 = s1; s1 = s0; }
+  return s1 * s1 + s2 * s2 - coeff * s1 * s2;
+}
+function decodeDigit(block, r) {
+  const lo = DTMF_LOW.map((f) => goertzel(block, f, r)), hi = DTMF_HIGH.map((f) => goertzel(block, f, r));
+  const il = lo.indexOf(Math.max(...lo)), ih = hi.indexOf(Math.max(...hi));
+  if (lo[il] < 1e8 || hi[ih] < 1e8) return null;                         // loud enough to be a tone
+  if (lo.some((p, j) => j !== il && p > lo[il] * 0.2)) return null;      // one tone per group
+  if (hi.some((p, j) => j !== ih && p > hi[ih] * 0.2)) return null;
+  lastTones = [DTMF_LOW[il], DTMF_HIGH[ih]];
+  return DTMF_KEYS[il][ih];
+}
+// The decoder keypad: lights the key the exchange is hearing and shows its two frequencies.
+for (const key of DTMF_KEYS.flat()) { const k = document.createElement('span'); k.textContent = key; k.dataset.key = key; $('keys').appendChild(k); }
+function dtmfShow(key) {
+  for (const k of $('keys').children) k.classList.toggle('hot', k.dataset.key === key);
+  $('dtmf-hz').textContent = key && lastTones ? lastTones[0] + ' / ' + lastTones[1] + ' Hz' : '-- / -- Hz';
+}
+function dtmfFeed(tx, r) {
+  if (r !== dialRate) { dialBuf = []; dialRate = r; }                    // a rate change starts a new block
+  const N = Math.round(r * 0.025);                                       // 25 ms blocks
+  for (let i = 0; i < tx.length; i++) dialBuf.push(tx[i]);
+  while (dialBuf.length >= N) {
+    const key = decodeDigit(dialBuf.splice(0, N), r);
+    dtmfShow(key);
+    if (key && key !== dialLast) {                                       // a new digit's onset
+      dialDigits++; dialledHeard += key; $('dialled-A').textContent = dialledHeard;
+      if (dialDigits >= DIAL_DIGITS) {
+        dialing = false; setLine('ringing');
+        setTimeout(() => workers.A && workers.A.postMessage({ ring: 1 }), 1000);   // one second of routing, then ring
+      }
+    }
+    dialLast = key;
+  }
+}
+
+function playChunk(role, tx, r) {
   if (!actx) return;
+  if (role === 'B' && dialing) dtmfFeed(tx, r);
+  if (pendingLen[role] && pendingRate[role] !== r) flushAudio(role);
+  pendingRate[role] = r;
   const f = new Float32Array(tx.length);
   for (let i = 0; i < tx.length; i++) f[i] = Math.max(-1, Math.min(1, 0.5 * tx[i] / 32768));
   pendingAudio[role].push(f);
   pendingLen[role] += f.length;
-  if (pendingLen[role] >= rate * 0.15) flushAudio(role);
+  if (pendingLen[role] >= r * 0.04) flushAudio(role);   // 40 ms batches: less delay before the speaker
 }
 
 function flushAudio(role) {
@@ -133,20 +365,66 @@ function flushAudio(role) {
   let o = 0;
   for (const f of pendingAudio[role]) { out.set(f, o); o += f.length; }
   pendingAudio[role] = []; pendingLen[role] = 0;
-  const buf = actx.createBuffer(1, out.length, rate);
+  const buf = actx.createBuffer(1, out.length, pendingRate[role]);
   buf.copyToChannel(out, 0);
   const src = actx.createBufferSource();
   src.buffer = buf;
   src.connect(speakerGain[role]);
   // Keep a short playback cushion so network jitter does not cause gaps.
-  const start = Math.max(nextT[role], actx.currentTime + 0.15);
+  const start = Math.max(nextT[role], actx.currentTime + 0.08);   // 80 ms ahead: short, with a little room for jitter
   src.start(start);
   nextT[role] = start + buf.duration;
 }
-let pend = { A: '', B: '' };
 let sent = false, stopping = false, t0 = 0, simNow = { A: 0, B: 0 };
 
-function say(role, line) { const el = logEls[role]; el.textContent += line + '\n'; el.scrollTop = el.scrollHeight; }
+// Log: every character as it arrives. \r starts the next line, \n goes back to the
+// start of the same line (later characters overwrite it).
+const logText = { A: [''], B: [''] }, logCol = { A: 0, B: 0 };
+function termWrite(role, text) {
+  const lines = logText[role];
+  for (const c of text) {
+    if (c === '\b' || c === '\x08') { logCol[role] = Math.max(0, logCol[role] - 1); continue; }
+    if (c === '\r') { lines.push(''); logCol[role] = 0; if (lines.length > 500) lines.shift(); continue; }
+    if (c === '\n') { logCol[role] = 0; continue; }
+    const col = logCol[role], line = lines[lines.length - 1];
+    lines[lines.length - 1] = line.slice(0, col) + c + line.slice(col + 1);
+    logCol[role]++;
+  }
+  // Redraw at most once per frame: rewriting the window per character is too costly.
+  if (!logDirty[role]) { logDirty[role] = true; requestAnimationFrame(() => redrawLog(role)); }
+}
+const logDirty = { A: false, B: false };
+function redrawLog(role) {
+  logDirty[role] = false;
+  const el = logEls[role];
+  el.textContent = logText[role].join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+// Each modem's window is a terminal: keys typed in it go to that modem, and are
+// echoed locally (on by default).
+function keyText(e) {
+  if (e.ctrlKey && e.key.length === 1) return String.fromCharCode(e.key.toUpperCase().charCodeAt(0) & 0x1f);
+  switch (e.key) {
+    case 'Enter': return '\r';
+    case 'Backspace': return '\x08';
+    case 'Tab': return '\t';
+    case 'Escape': return '\x1b';
+  }
+  return e.key.length === 1 ? e.key : null;
+}
+for (const role of ['A', 'B']) {
+  const pre = logEls[role];
+  pre.tabIndex = 0;
+  pre.addEventListener('keydown', (e) => {
+    const k = keyText(e);
+    if (k === null) return;
+    e.preventDefault();
+    if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
+    workers[role].postMessage({ cmd: 'send', text: k });
+    termWrite(role, k);   // Enter (\r) starts the next line
+  });
+}
 
 function writeWav(left, right, sr) {
   const n = Math.min(left.length, right.length);
@@ -177,8 +455,157 @@ function flashLamp(role, name) {
   setTimeout(() => p.setUart(name, false), 150);
 }
 
+// Constellation: one dot per symbol, fading, scaled to the largest value seen. These are the points the modem
+// sends (the mapper's output): a clean grid. They are not the received, equalized points.
+const scopeMax = { A: 1, B: 1 }, scopeZoom = { A: 'auto', B: 'auto' }, scopeAuto = { A: 1, B: 1 }, scopeXs = { A: new Set(), B: new Set() }, scopePts = { A: new Set(), B: new Set() };
+let instSide = 'A';   // which modem the instruments show; both keep collecting
+function instClear() {
+  for (const id of ['scope-iq', 'scope-fft', 'scope-wave']) { const c = $(id), g = c.getContext('2d'); g.shadowBlur = 0; g.fillStyle = '#090c0b'; g.fillRect(0, 0, c.width, c.height); }
+  $('ro-iq').textContent = scopePts[instSide].size ? scopePts[instSide].size + ' pts' : '';
+  $('iq-zoom').value = String(scopeZoom[instSide]);
+}
+for (const b of document.querySelectorAll('button[data-side]')) b.addEventListener('click', () => {
+  instSide = b.dataset.side;
+  for (const o of document.querySelectorAll('button[data-side]')) o.classList.toggle('on', o === b);
+  instClear();
+});
+$('iq-zoom').addEventListener('change', () => { const v = $('iq-zoom').value; scopeZoom[instSide] = v === 'auto' ? v : Number(v); });
+$('iq-reset').addEventListener('click', () => { scopeMax[instSide] = 1; scopeAuto[instSide] = 1; scopeXs[instSide].clear(); scopePts[instSide].clear(); $('ro-iq').textContent = ''; });
+const IQ_MAX = 300, dotSprites = new Map();
+function dotSprite(rad) {
+  const key = Math.round(rad * 4);
+  let c = dotSprites.get(key);
+  if (!c) {
+    const r = key / 4, size = Math.ceil(2 * (r + 8));
+    c = document.createElement('canvas'); c.width = c.height = size;
+    const g = c.getContext('2d');
+    g.fillStyle = '#7dff8f'; g.shadowColor = 'rgba(100,255,130,0.9)'; g.shadowBlur = 5;
+    g.beginPath(); g.arc(size / 2, size / 2, r, 0, 2 * Math.PI); g.fill();
+    dotSprites.set(key, c);
+  }
+  return c;
+}
+function drawScope(role, pts) {
+  const c = $('scope-iq'), g = c.getContext('2d'), W = c.width, H = c.height, cx = W / 2, cy = H / 2;
+  let mx = scopeMax[role];
+  const xs = scopeXs[role];
+  for (let i = 0; i < pts.length; i++) {
+    mx = Math.max(mx, Math.abs(pts[i]));
+    if (i % 2 === 0 && xs.size < 200) xs.add(pts[i]);
+    if (i % 2 === 0 && scopePts[role].size < 4000) scopePts[role].add((pts[i] & 0xFFFF) * 65536 + (pts[i + 1] & 0xFFFF));
+  }
+  scopeMax[role] = mx;
+  if (role !== instSide) return;   // the other modem's points are kept, just not drawn
+  $('ro-iq').textContent = scopePts[role].size + ' pts';
+  // Auto zoom: fit the recent extent (the largest value of the last second or two, decaying), with a little headroom.
+  let fm = 0; for (let i = 0; i < pts.length; i++) fm = Math.max(fm, Math.abs(pts[i]));
+  scopeAuto[role] = Math.max(fm, scopeAuto[role] * 0.97, 1);
+  const extent = scopeZoom[role] === 'auto' ? scopeAuto[role] * 1.08 : mx / scopeZoom[role];
+  const R = W / 2 - 34, sc = R / extent;   // leave a margin for the axis labels
+  // The points sit on a lattice; size the dots from its spacing (the smallest gap between x values seen).
+  const v = [...xs].sort((a, b) => a - b);
+  let gap = Infinity;
+  for (let i = 1; i < v.length; i++) if (v[i] - v[i - 1] > 0) gap = Math.min(gap, v[i] - v[i - 1]);
+  const rad = Number.isFinite(gap) ? Math.max(2, Math.min(4, gap * sc * 0.13)) : 2;
+  g.shadowBlur = 0;
+  g.fillStyle = 'rgba(9,12,11,0.16)'; g.fillRect(0, 0, W, H);                 // persistence
+  // Graticule: crosshair with tick marks.
+  g.strokeStyle = 'rgba(70,140,85,0.4)';
+  g.beginPath(); g.moveTo(cx, 6); g.lineTo(cx, H - 6); g.moveTo(6, cy); g.lineTo(W - 6, cy); g.stroke();
+  g.beginPath();
+  for (let k = -4; k <= 4; k++) { const o = k * R / 4; g.moveTo(cx + o, cy - 4); g.lineTo(cx + o, cy + 4); g.moveTo(cx - 4, cy + o); g.lineTo(cx + 4, cy + o); }
+  g.stroke();
+  // The points: small round dots with a soft glow. The glow is rendered once into a sprite (shadowBlur per dot is
+  // slow); repeats of the same point are skipped, and at most IQ_MAX dots go out per frame.
+  const sp = dotSprite(rad), half = sp.width / 2;
+  let drawn = 0, lx = NaN, ly = NaN;
+  for (let i = pts.length - 2; i >= 0 && drawn < IQ_MAX; i -= 2) {
+    if (pts[i] === lx && pts[i + 1] === ly) continue;
+    lx = pts[i]; ly = pts[i + 1];
+    g.drawImage(sp, cx + lx * sc - half, cy - ly * sc - half);
+    drawn++;
+  }
+  // Axis labels in the margin: I at the right end of the horizontal axis, Q at the top of the vertical one,
+  // with the full-scale value at each end.
+  const full = Math.round(extent);
+  g.fillStyle = 'rgba(125,255,143,0.9)'; g.font = '600 15px ui-monospace, Menlo, monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('I', W - 14, cy); g.fillText('Q', cx, 14);
+  g.fillStyle = 'rgba(125,255,143,0.55)'; g.font = '11px ui-monospace, Menlo, monospace';
+  g.fillText('+' + full, W - 20, cy + 18); g.fillText('-' + full, 20, cy + 18);
+  g.textAlign = 'left'; g.fillText('+' + full, cx + 8, 30); g.fillText('-' + full, cx + 8, H - 14);
+}
+// Spectrum of the audio a modem sends: the last 1024 samples, Hann window, radix-2 FFT, bins averaged a little.
+const FFT_N = 1024, fftBuf = { A: [], B: [] }, fftAvg = { A: new Float32Array(FFT_N / 2), B: new Float32Array(FFT_N / 2) }, fftRate = { A: 7200, B: 7200 }, fftWhen = { A: 0, B: 0 };
+const fftWin = Float32Array.from({ length: FFT_N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (FFT_N - 1)));
+function fftRun(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = a + len / 2, xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+function fftFeed(role, tx, r) {
+  if (r !== fftRate[role]) { fftBuf[role] = []; fftRate[role] = r; fftAvg[role].fill(0); }
+  const buf = fftBuf[role];
+  for (let i = 0; i < tx.length; i++) buf.push(tx[i]);
+  if (buf.length > FFT_N) buf.splice(0, buf.length - FFT_N);
+  const now = performance.now();
+  if (role !== instSide || buf.length < FFT_N || now - fftWhen[role] < 80) return;
+  fftWhen[role] = now;
+  const re = new Float32Array(FFT_N), im = new Float32Array(FFT_N), avg = fftAvg[role];
+  for (let i = 0; i < FFT_N; i++) re[i] = buf[i] / 32768 * fftWin[i];
+  fftRun(re, im);
+  for (let k = 0; k < FFT_N / 2; k++) avg[k] = 0.6 * avg[k] + 0.4 * Math.hypot(re[k], im[k]) / (FFT_N / 4);   // 1.0 = full-scale sine
+  drawFft(avg, r);
+  drawWave(buf, r);
+}
+function drawFft(avg, r) {
+  const c = $('scope-fft'), g = c.getContext('2d'), W = c.width, H = c.height, L = 40, R = W - 12, T = 14, B = H - 30, DB0 = -100;
+  g.shadowBlur = 0; g.fillStyle = '#090c0b'; g.fillRect(0, 0, W, H);
+  g.font = '11px ui-monospace, Menlo, monospace'; g.fillStyle = 'rgba(125,255,143,0.55)'; g.strokeStyle = 'rgba(70,140,85,0.25)'; g.lineWidth = 1;
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let db = 0; db >= DB0; db -= 20) { const y = T + (B - T) * (-db) / -DB0; g.beginPath(); g.moveTo(L, y); g.lineTo(R, y); g.stroke(); g.fillText(String(db), L - 6, y); }
+  const nyq = r / 2; g.textAlign = 'center'; g.textBaseline = 'top';
+  for (let f = 0; f <= nyq; f += 1000) { const x = L + (R - L) * f / nyq; g.beginPath(); g.moveTo(x, T); g.lineTo(x, B); g.stroke(); g.fillText(f / 1000 + 'k', x, B + 6); }
+  g.fillStyle = 'rgba(125,255,143,0.9)'; g.fillText('Hz', R - 8, B + 18);
+  g.beginPath(); g.moveTo(L, B);
+  for (let k = 0; k < avg.length; k++) { const db = Math.max(DB0, 20 * Math.log10(avg[k] + 1e-9)); g.lineTo(L + (R - L) * k / avg.length, T + (B - T) * (-db) / -DB0); }
+  g.lineTo(R, B); g.closePath(); g.fillStyle = 'rgba(100,255,130,0.18)'; g.fill();
+  g.strokeStyle = '#7dff8f'; g.lineWidth = 1.2; g.shadowColor = 'rgba(100,255,130,0.8)'; g.shadowBlur = 4; g.stroke(); g.shadowBlur = 0;
+  $('fft-nyq').textContent = (nyq / 1000).toFixed(1);
+}
+function drawWave(buf, r) {
+  const c = $('scope-wave'), g = c.getContext('2d'), W = c.width, H = c.height, N = 512, cy = H / 2;
+  let s0 = 0; while (s0 < FFT_N - N - 1 && !(buf[s0] <= 0 && buf[s0 + 1] > 0)) s0++;   // trigger: rising zero crossing
+  if (s0 >= FFT_N - N - 1) s0 = 0;
+  let pk = 1; for (let i = 0; i < FFT_N; i++) pk = Math.max(pk, Math.abs(buf[i]));
+  const sc = (H / 2 - 12) / Math.max(pk, 2048);
+  g.shadowBlur = 0; g.fillStyle = '#090c0b'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(70,140,85,0.25)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, cy); g.lineTo(W, cy);
+  for (let k = 1; k < 8; k++) { g.moveTo(W * k / 8, 0); g.lineTo(W * k / 8, H); }
+  g.stroke();
+  g.beginPath();
+  for (let i = 0; i < N; i++) { const x = W * i / (N - 1), y = cy - buf[s0 + i] * sc; if (i) g.lineTo(x, y); else g.moveTo(x, y); }
+  g.strokeStyle = '#7dff8f'; g.lineWidth = 1.3; g.shadowColor = 'rgba(100,255,130,0.8)'; g.shadowBlur = 4; g.stroke(); g.shadowBlur = 0;
+  $('wave-span').textContent = (1000 * N / r).toFixed(0) + ' ms across';
+  $('wave-pk').textContent = 'peak ±' + pk;
+}
 function onMessage(role, m) {
   if (m.error) { statusEl.textContent = role + ' error: ' + m.error; return; }
+  if (m.scope) { drawScope(role, m.scope); return; }
   if (m.latch !== undefined) {
     if (panels[role]) panels[role].setLatches(m.latch);
     setSpeaker(role, m.latch[1]);   // [0x10, 0x12, 0x14]: index 1 is 0x12
@@ -190,38 +617,40 @@ function onMessage(role, m) {
     return;
   }
   if (m.stat) {
-    stats[role] = m;
-    $('t-rate').textContent = ['A', 'B'].map((r) => stats[r] ? r + ' sim ' + stats[r].sim.toFixed(1) + ' s, ' +
-      (stats[r].sim / stats[r].wall).toFixed(2) + 'x, starved ' + stats[r].starved + ', rx ' + stats[r].rxMs.toFixed(0) + ' ms' : r + ' -').join(' | ');
+    const dt = m.wall - textWall[role];
+    const bps = dt > 0 ? (textIn[role] - textLast[role]) / dt : 0;
+    textLast[role] = textIn[role]; textWall[role] = m.wall;
+    stats[role] = { ...m, bps };
+    const st = stats[role];
+    $('s-' + role + '-sim').textContent = st.sim.toFixed(1) + ' s';
+    $('s-' + role + '-x').textContent = (st.sim / st.wall).toFixed(2) + '\u00d7';
+    $('s-' + role + '-bps').textContent = st.bps.toFixed(0) + ' B/s';
+    $('s-' + role + '-cpu').textContent = st.cpu.toFixed(0) + '%';
+    $('s-' + role + '-rx').textContent = st.rxMs.toFixed(0) + ' ms';
     return;
   }
   if (m.host !== undefined) {
     flashLamp(role, 'SD');
     flashLamp(role, 'RS');
-    say(role, m.sim.toFixed(2) + 's HOST->' + role + ' ' + JSON.stringify(m.host));
-    if (role === 'B' && m.host.includes('ATDT')) workers.A.postMessage({ ring: 1 });
+    termWrite(role, m.host);   // the commands the page sends (AT, ATDT ...), as typed
+    if (role === 'B' && /^ATD/i.test(m.host)) startDialing();   // A rings only after the digits are heard
     return;
   }
   simNow[role] = m.sim;
-  playChunk(role, m.tx);
+  playChunk(role, m.tx, m.rate);
+  fftFeed(role, m.tx, m.rate);
   if (m.dte) {
     flashLamp(role, 'RD');
     dte[role] += m.dte;
-    // Log only complete lines: hold text until a newline arrives.
-    pend[role] += m.dte;
+    const cm = /CONNECT\s+(\d+)/.exec(dte[role]);
+    if (cm) $('stag-' + role).textContent = cm[1] + ' BIT/S';
+    if (lineState !== 'connected' && dte.A.includes('CONNECT') && dte.B.includes('CONNECT')) setLine('connected');
+    textIn[role] += m.dte.length;
     if (role === 'A' && !ataSent && dte.A.includes('RING')) {
-      ataSent = true;
-      workers.A.postMessage({ cmd: 'send', text: 'ATA\r' });
-      workers.A.postMessage({ ring: 0 });   // stop ringing once ATA is sent
+      ataSent = true; setLine('answering');
+      workers.A.postMessage({ cmd: 'send', text: 'ATA\r' });   // the ring stops when A goes off-hook (the office)
     }
-    const parts = pend[role].split(/\r\n|\r|\n/);
-    pend[role] = parts.pop();                  // unfinished fragment stays pending
-    for (const line of parts) if (line.trim()) say(role, m.sim.toFixed(2) + 's ' + role + ' ' + JSON.stringify(line));
-    if (!sent && dte.A.includes('CONNECT') && dte.B.includes('CONNECT')) {
-      sent = true;
-      workers.B.postMessage({ cmd: 'send', text: 'Hello world from courier\r' });
-      workers.A.postMessage({ cmd: 'send', text: 'Hello back from the answerer\r' });
-    }
+    termWrite(role, m.dte);
   }
   $('t-sim').textContent = Math.min(simNow.A, simNow.B).toFixed(2) + ' s';
 }
@@ -232,7 +661,36 @@ $('hangup').addEventListener('click', () => {
   $('hangup').disabled = true;
   statusEl.textContent = 'Hanging up...';
   for (const role of ['A', 'B']) workers[role].postMessage({ cmd: 'send', text: 'ATH\r' });
-  setTimeout(() => { for (const role of ['A', 'B']) workers[role].postMessage({ stop: true }); }, 500);
+  setTimeout(() => {
+    for (const role of ['A', 'B']) workers[role].postMessage({ stop: true });
+    $('go').disabled = false; $('speed').disabled = false;   // power on again for another call
+    $('dial').disabled = true;
+    $('rand').disabled = true;
+  }, 500);
+});
+
+// Throughput test: 32 kB of random printable text from the caller (B) to the answerer (A).
+// The text-in rate on A's row is the B-to-A rate.
+$('rand').addEventListener('click', () => {
+  if (!workers.B) return;
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 1; out.length < 32000; i++) {
+    let line = String(i).padStart(5, '0') + ' ';
+    for (let j = 0; j < 70; j++) line += chars[Math.floor(Math.random() * chars.length)];
+    out += line + '\r\n';
+  }
+  workers.B.postMessage({ cmd: 'send', text: out });
+  statusEl.textContent = 'Sent 32 kB random from B to A.';
+});
+
+// Start call: the caller (B) dials. Power on has already run the modems' setup.
+$('dial').addEventListener('click', () => {
+  if (!workers.B) return;
+  workers.B.postMessage({ cmd: 'send', text: 'ATDT5551234\r' });
+  setLine('dialing'); $('dialled-B').textContent = '555-1234';
+  $('dial').disabled = true;
+  statusEl.textContent = 'Dialing. Waiting for RING.';
 });
 
 function finish() {
@@ -241,32 +699,41 @@ function finish() {
   $('t-msgs').textContent = 'to answerer: ' + (dte.A.includes('Hello world from courier') ? 'yes' : 'no') +
                             ', to caller: ' + (dte.B.includes('Hello back from the answerer') ? 'yes' : 'no');
   statusEl.textContent = 'Done. Audio played live (left = caller, right = answerer).';
-  $('go').disabled = false;
+  setLine('off');
+  $('go').disabled = false; $('speed').disabled = false;
+  $('dial').disabled = true;
   $('hangup').disabled = true;
 }
 
 $('go').addEventListener('click', () => {
   for (const w of Object.values(workers)) w.terminate();
-  if (lineW) lineW.terminate();
-  lineW = new Worker('line.js');
-  lineW.postMessage({ init: true, lookaheadS: LOOKAHEAD_S, gain: GAIN });
   workers = {}; rec = { A: [], B: [] }; dte = { A: '', B: '' }; doneCount = 0; sent = false;
-  simNow = { A: 0, B: 0 }; stopping = false; ataSent = false; pend = { A: '', B: '' }; logEls.A.textContent = ''; logEls.B.textContent = '';
+  textIn.A = textIn.B = textLast.A = textLast.B = textWall.A = textWall.B = 0;
+  simNow = { A: 0, B: 0 }; stopping = false; ataSent = false; logText.A = ['']; logText.B = ['']; logCol.A = 0; logCol.B = 0; logEls.A.textContent = ''; logEls.B.textContent = '';
   $('t-connect').textContent = '-'; $('t-msgs').textContent = '-'; $('t-sim').textContent = '-';
   audioInit();
+  setLine('standby'); $('dialled-A').textContent = ''; $('dialled-B').textContent = '';
+  for (const r of ['A', 'B']) { $('stag-' + r).textContent = 'IDLE'; scopePts[r].clear(); fftBuf[r] = []; }
+  instClear();
   $('go').disabled = true;
+  $('dial').disabled = false;
+  $('rand').disabled = false;
   $('hangup').disabled = false;
-  statusEl.textContent = 'Running two modems...';
+  statusEl.textContent = 'Modems powered on. Press Start call to dial.';
   t0 = performance.now();
-  for (const [role, script] of [['A', scriptA], ['B', scriptB]]) {
-    const ch = new MessageChannel();
-    lineW.postMessage({ role, port: ch.port2 }, [ch.port2]);
+  // One channel per direction, straight between the two modem workers.
+  const ab = new MessageChannel(), ba = new MessageChannel();   // A -> B, B -> A
+  const ends = { A: { toPeer: ab.port1, fromPeer: ba.port2 }, B: { toPeer: ba.port1, fromPeer: ab.port2 } };
+  const scripts = setupScripts();
+  $('speed').disabled = true;   // the speed is set by the setup commands, so it can only change while powered off
+  for (const role of ['A', 'B']) {
+    const script = scripts[role];
     const w = new Worker('worker.js');
     if (panels[role]) panels[role].setUart('TR', true);   // DTR asserted: the call is running
     w.onmessage = (e) => onMessage(role, e.data);
-    w.onerror = (e) => { statusEl.textContent = role + ' worker error: ' + e.message; $('go').disabled = false; };
+    w.onerror = (e) => { statusEl.textContent = role + ' worker error: ' + e.message; $('go').disabled = false; $('speed').disabled = false; };
     workers[role] = w;
-    w.postMessage({ init: true, role, script, lookaheadS: LOOKAHEAD_S, dialTone: role === 'B', port: ch.port1 }, [ch.port1]);
+    w.postMessage({ init: true, role, script, lookaheadS: LOOKAHEAD_S, gain: GAIN, noise: Number($('noise').value) / 100, dialTone: false, toPeer: ends[role].toPeer, fromPeer: ends[role].fromPeer }, [ends[role].toPeer, ends[role].fromPeer]);
   }
 });
 </script>

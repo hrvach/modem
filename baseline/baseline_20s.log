@@ -1,0 +1,7 @@
+== mode auto setup replies: (b'', b'')
+events: [(0.0, 'dialtone'), (2.32, 'digit'), (2.39, 'dialing'), (2.89, 'ringing'), (4.7, 'answering'), (4.7, 'connected')]
+A (callee) DTE text: b'\r\nRING\r\n'
+B (caller) DTE text: b''
+A DSP commands after 12 s: [(15.0, '0002', 'B000'), (21.65, '0002', 'B000')]
+B DSP commands after 12 s: []
+wrote call_auto_*.wav (20 s)

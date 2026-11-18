@@ -1,0 +1,1028 @@
+# zip-vs-live diff summary (generated 2026-11-16)
+# ZIP: /home/hatch/workspace/research_notes/courier-firmware/c-port/modem (snapshot 2026-11-16 15:30)
+# LIVE: /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover (handover-2, files dated 2026-11-16 15:03)
+# diff -rq excluding __pycache__ and *.so:
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: .git
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/HANDOVER.md and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/HANDOVER.md differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem: STATUS.md
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: SV25.flash.bin
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: SV25.flash.bin.hdr
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem: doc
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: docs
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: README.txt
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: audio_scan.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: audio_scan2.py
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp/c5x.py and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/dsp/c5x.py differ
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp/c5x_core.c and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/dsp/c5x_core.c differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: c5x_core.c.bak
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: handlers.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: host1.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: host2.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: host3.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: romcheck.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: sib
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: smoke1.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: smoke2.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: smoke3.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: smoke4.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: smoke5.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: smoke6.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/dsp: trace1.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem: fable-progress.md
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: firmware_derived
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: fw
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: notes
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: out
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/FULL_SYSTEM.md and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/FULL_SYSTEM.md differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: boot1.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: boot2.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: boot3.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: callertest.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: callertest2.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: callertest3.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: capture.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: capture_caller.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: find_dial.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: find_dial2.py
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/i186.c and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/i186.c differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys: i186.h
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/i186.py and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/i186.py differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: isolate.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: isolate2.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: isolate3.py
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/link.py and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/link.py differ
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/link_mp.py and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/link_mp.py differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: linktest1.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: linktest2.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: linktest3.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: linktest3b.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: linktest3c.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: linktest4.py
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/machine.py and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/machine.py differ
+Files /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys/nvram_SV20.bin and /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover/sys/nvram_SV20.bin differ
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: nvram_SV20_old.bin
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: profiles.py
+Only in /home/hatch/workspace/research_notes/courier-firmware/c-port/modem/sys: resamp.c
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: tools
+Only in /home/hatch/workspace/research_notes/courier-firmware/handover-2-2026-11-15/handover: work
+
+## per-file diff line counts (diff | wc -l)
+sys/machine.py: 271
+sys/link.py: 133
+sys/linkcall.py: 0
+sys/link_mp.py: 8
+sys/i186.py: 12
+sys/i186.c: 358
+sys/line.py: 0
+sys/FULL_SYSTEM.md: 5
+dsp/c5x.py: 35
+dsp/c5x_core.c: 131
+dsp/c5x_cyctab.h: 0
+10,14c10,12
+< import profiles
+< PROFILE = profiles.current()      # firmware / board specific settings (sys/profiles.py)
+< DSP_HZ = int(os.environ.get('DSP_HZ', PROFILE['dsp_hz']))             # DSP instruction clock (CLKOUT1); 20160000 for the 20.16 MHz board variant (IDSDL302)
+< DSP_CPS = int(os.environ.get('DSP_CPS', str(DSP_HZ // 7200)))          # DSP cycles per 7200 Hz codec sample (5600 at 40.32 MHz); only the 7200 Hz value: other rates use DSP_HZ / rate unless DSP_CLK_FIXED=0. NOTE: the firmware's timer interrupt (TINT) is a bare rete, the timer is not the symbol clock (tools/diag/tintslot.py), so the old argument PRD 16800 = 3 samples does not constrain the clock
+< CPU_HZ = int(os.environ.get('CPU_HZ', PROFILE['cpu_hz']))       # 25.8048 MHz: firmware baud table (9EB0:0C1A) and the sibling project's measurements agree (owner's 50 MHz oscillator reading was not it); 20160000 for the 20.16 MHz board variant
+---
+> DSP_HZ = int(os.environ.get('DSP_HZ', '40320000'))             # DSP instruction clock (CLKOUT1); 20160000 for the 20.16 MHz board variant (IDSDL302)
+> DSP_CPS = int(os.environ.get('DSP_CPS', str(DSP_HZ // 7200)))          # DSP cycles per 7200 Hz codec sample: the symbol timer PRD 0x419F (16800 cycles = 3 samples = 2400 Hz) fixes it at 5600 (CLKOUT1 = 40.32 MHz); 2083 was a wrong guess
+> CPU_HZ = int(os.environ.get('CPU_HZ', '25804800'))       # 25.8048 MHz: firmware baud table (9EB0:0C1A) and the sibling project's measurements agree (owner's 50 MHz oscillator reading was not it); 20160000 for the 20.16 MHz board variant
+22,28c20
+< IFACE403 = (os.environ.get('IFACE') or PROFILE['iface']) == '403'      # CPU side of the DSP mailbox as on the 7.4.16 supervisor / DSP 3.1.2 board (courier-emu docs/dsp-cpu-link.md): 0x1C = standing request (bit0 = input register free) + reply waiting (bit1), ack/commit by writing bits back to 0x1C, INT0 is a free-running heartbeat
+< HB_TIMER = os.environ.get('HB_TIMER', '1') != '0'      # host heartbeat from the DSP timer expiries (physical); HB_TIMER=0: every 3 codec samples (old model, only right at 7200 Hz)
+< DSP_CLK_FIXED = os.environ.get('DSP_CLK_FIXED', '1') != '0'      # the DSP clock is fixed (40.32 MHz, board-confirmed; the C51 has no software-programmable PLL, CLKMD is pin-strapped), so DSP cycles per codec sample = DSP_HZ / rate; DSP_CLK_FIXED=0 restores the old model (5600 cycles per sample at every rate = the DSP clock following the codec rate, physically wrong)
+< PORT_RB = os.environ.get('PORT_RB', '1') != '0'   # DSP I/O ports without a model read back the last value written (default 0)
+< SEC_FRAME = os.environ.get('SEC_FRAME', '1') != '0'   # AC01 secondary frame at half a primary interval (no ADC/DAC sample); 0 = old model (secondary word replaces a whole sample period)
+< CMD_OVR = os.environ.get('CMD_OVR', '')      # experiment: rewrite host->DSP command words, ";"-separated: "42=F9" (arg of every command 0x42), "50@2=45" (2nd of each run of six 0x50), "43>44" (rename command 0x43 to 0x44)
+< INT23 = os.environ.get('INT23', '1') != '0'     # wire DSP INT2 (ASIC mailbox) and INT3 (AC01 FS)
+---
+> DSP_CLK_FIXED = os.environ.get('DSP_CLK_FIXED', '1') == '1'      # default: keep the DSP clock fixed at 40.32 MHz while the codec rate changes (the scaling model was wrong; see work/w9-clock.md)
+31,56c23
+< AC01_FILT = os.environ.get('AC01_FILT', '0') == '1'     # experiment: TLC320AC01 analog filters (datasheet 2.11: LP 3 dB corner = FCLK/40 = fs*B/40 in the ADC anti-alias and the DAC reconstruction path, HP single pole fs/200 in the ADC path when register 5 enables it)
+< AC01_LAT = int(os.environ.get('AC01_LAT', '0'))          # extra ADC-side latency in codec samples (conversion time + frame offset)
+< class _Lp6:
+<     """6th-order low-pass (Chebyshev I, 0.15 dB ripple as the stand-in for the elliptic characteristic) as 3 biquads, bilinear transform, unity DC gain."""
+<     def __init__(self): self.key = None; self.sec = []; self.st = []
+<     def design(self, fc, fs):
+<         import math
+<         if fc >= 0.45 * fs: self.sec = []; self.st = []; return        # corner at/above Nyquist (7200 Hz mode): the sampled filter is transparent in-band
+<         N = 6; eps = math.sqrt(10 ** 0.015 - 1); w3 = math.cosh(math.acosh(math.sqrt(10 ** 0.3 - 1) / eps) / N)
+<         fp = min(fc, 0.46 * fs) / w3; a = math.asinh(1 / eps) / N; wd = 2 * fs * math.tan(math.pi * fp / fs); c = 2 * fs; sec = []; dc = 1.0
+<         for k in range(1, N // 2 + 1):
+<             th = (2 * k - 1) * math.pi / (2 * N); sr = -math.sinh(a) * math.sin(th); si = math.cosh(a) * math.cos(th)
+<             A1 = -2 * sr * wd; A0 = (sr * sr + si * si) * wd * wd; den = c * c + A1 * c + A0
+<             b = A0 / den; a1 = (2 * A0 - 2 * c * c) / den; a2 = (c * c - A1 * c + A0) / den
+<             sec.append([b, 2 * b, b, a1, a2]); dc *= (4 * b) / (1 + a1 + a2)
+<         sec[0][0] /= dc; sec[0][1] /= dc; sec[0][2] /= dc
+<         self.sec = sec
+<         if len(self.st) != 3: self.st = [[0.0, 0.0] for _ in sec]
+<     def set(self, fc, fs):
+<         key = (round(fc), round(fs))
+<         if key != self.key: self.key = key; self.design(fc, fs)
+<     def __call__(self, x):
+<         for (b0, b1, b2, a1, a2), z in zip(self.sec, self.st):
+<             y = b0 * x + z[0]; z[0] = b1 * x - a1 * y + z[1]; z[1] = b2 * x - a2 * y; x = y
+<         return x
+< FLASH = os.environ.get('FLASH') or PROFILE['flash']     # FLASH=path swaps the firmware image (experiment)
+---
+> FLASH = os.environ.get('FLASH') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'SV25.flash.bin')     # FLASH=path swaps the firmware image (experiment)
+127c94
+<     def __init__(self, patch_crc=0x1735, nvram_mode=6, fax_patch=False, cpu_model=int(os.environ.get('CPU_MODEL', '1'))):
+---
+>     def __init__(self, patch_crc=0x1735, nvram_mode=6, fax_patch=False, cpu_model=1):
+142c109
+<         self.xint_mode = int(os.environ.get('XINT_MODE', '1')); self.cycle_model = int(os.environ.get('CYC_MODEL', '1')); self.legacy = int(os.environ.get('LEGACY', '0')); self.tdm_irqs = False   # DSP-audit switches (legacy = 0, 0, True)
+---
+>         self.xint_mode = 1; self.cycle_model = 1; self.legacy = int(os.environ.get('LEGACY', '0')); self.tdm_irqs = False   # DSP-audit switches (legacy = 0, 0, True)
+145,146c112,114
+<         self.cmd_log16 = []; self.cmd_log = []; self.rom_replies = False; self.hb_ticks = 1 if HB_TIMER else 3; self.hb_count = 0; self._hb_e = 0; self.heartbeat = True   # DSP -> host INT0 heartbeat at the DSP sample rate (supervisor timebase)
+<         self.rate_idx = [(0, 7200)]; self.dsp = None; self.sender_pcs = None; self.dsp_log = []; self.next_samp = INF; self.rate = 7200; self.sample_cyc = SAMPLE_CYC; self.dsp_cps = DSP_CPS; self.rate_log = []; self.aic = {1: 18, 2: 18, 3: 0, 4: 5, 5: 1, 6: 0}; self.aic_req = False; self._tick_dc = 0; self.aic_h = 0; self.mclk_n = 0; self.aic_log = []; self._tx_req = False; self._tx_hold = 0
+---
+>         self.cmd_log16 = []; self.cmd_log = []; self.rom_replies = False; self.hb_ticks = 3; self.hb_count = 0; self.heartbeat = True   # DSP -> host INT0 heartbeat at the DSP sample rate (supervisor timebase)
+>         self.dsp = None; self.dsp_log = []; self.next_samp = INF; self.rate = 7200; self.sample_cyc = SAMPLE_CYC; self.dsp_cps = DSP_CPS; self.rate_log = []; self.aic = {1: 18, 2: 18, 3: 0, 4: 5, 5: 1, 6: 0}; self.aic_req = False; self._tick_dc = 0; self.aic_h = 0; self.mclk_n = 0; self.aic_log = []; self._tx_req = False; self._tx_hold = 0
+>         self._sc_num = CPU_HZ; self._sc_den = 7200; self._sc_rem = 0; self._dc_num = DSP_HZ; self._dc_den = 7200; self._dc_rem = 0; self._dsp_target = None   # exact rational cycles/sample (w25a): sample_cyc = _sc_num/_sc_den, dsp_cps = _dc_num/_dc_den, Bresenham-stepped per sample; sum over K samples is the exactly-rounded K * fraction, error < 1 cycle forever (the old CPU_HZ//r and DSP_HZ//r floor divisions lost 0.37 and 0.15 cycles/sample at 10267 Hz, ~25 and ~6 samples of drift by S onset)
+150c118
+<         self.sec_abs = set(); self.sec_n = 0; self.port_store = {}; self.h2d_pending = 0; self.d2h_valid = 0; self.evt = 0; self.int0_req = 0; self.evt_seen = 0
+---
+>         self.h2d_pending = 0; self.d2h_valid = 0; self.evt = 0; self.int0_req = 0; self.evt_seen = 0
+161c129
+<         nv = os.environ.get('NVRAM') or PROFILE['nvram']; self.eeprom = Eeprom(open(nv, 'rb').read() if os.path.exists(nv) else None)   # factory profile (&F1) made with tools/diag/nvgen.py; env NVRAM overrides; NVRAM=/dev/null -> blank chip
+---
+>         nv = os.environ.get('NVRAM') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'nvram.bin'); self.eeprom = Eeprom(open(nv, 'rb').read() if os.path.exists(nv) else None)   # factory profile (&F1) made with tools/diag/nvgen.py; env NVRAM overrides; NVRAM=/dev/null -> blank chip
+168c136
+<         self.hw_idx = int(os.environ.get('HWID', PROFILE['hw_idx'])); self.voice_data_button = os.environ.get('VDBTN', '0') == '1'; self.set_dip()
+---
+>         self.hw_idx = int(os.environ.get('HWID', '7')); self.voice_data_button = os.environ.get('VDBTN', '0') == '1'; self.set_dip()
+173c141
+<         self.cpu.cycle_model(cpu_model); self.cpu.cycle_scale(float(os.environ.get('CPU_SCALE', '1.0'))); self.cpu.ud_trap(int(os.environ.get('UD_TRAP', '1') != '0')); self.cpu.reset()
+---
+>         self.cpu.cycle_model(cpu_model); self.cpu.reset()
+209,210d176
+<         if IFACE403 and p == 0x1C and self.dsp is not None: return 0xFC | (0 if self.h2d_pending else 1) | ((1 if self.d2h_valid else 0) << 1)   # idle 0xFD (bit0 standing), 0xFF while a DSP reply waits
+<         if IFACE403 and p == 0x1E and self.dsp is not None: return 0xF8 | self.ovl_status if self.ovl_status else 0xFF
+215c181
+<             if p == 0x58 and not IFACE403: self.d2h_valid = 0              # host consumed the message (403: acknowledged by writing bit 1 back to 0x1C)
+---
+>             if p == 0x58: self.d2h_valid = 0                               # host consumed the message
+242,244c208
+<         if IFACE403 and p == 0x1C and self.dsp is not None:
+<             if v & 2: self.d2h_valid = 0                                 # the ISR writes the status back: bit 1 = reply taken, the DSP may send again
+<         elif p == 0x1C and self.dsp is not None: self.evt &= ~(v & 0xFF); self.evt_seen &= self.evt   # write-1-to-clear acknowledge
+---
+>         if p == 0x1C and self.dsp is not None: self.evt &= ~(v & 0xFF); self.evt_seen &= self.evt   # write-1-to-clear acknowledge
+250,253c214
+<             if p == 0x5E:
+<                 if CMD_OVR: self._cmd_override()
+<                 self.h2d_pending = 1
+<                 if INT23: self.dsp.irq(c5x.INT2)                  # ASIC pin 109 -> DSP INT2 (pin 39): CPU-to-DSP mailbox word available (board-verified, courier-emu docs/board-verified-403.md)
+---
+>             if p == 0x5E: self.h2d_pending = 1
+268,271c229,231
+<             for j, v in enumerate(out):
+<                 if SEC_FRAME and (h - n + j) in self.sec_abs: self.sec_abs.discard(h - n + j); continue      # secondary control word: no DAC sample
+<                 if not SEC_FRAME and self._tx_req: self._tx_req = False; res.append(int(self._tx_hold * g)); continue
+<                 if not SEC_FRAME and (v & 3) == 3: self._tx_req = True
+---
+>             for v in out:
+>                 if self._tx_req: self._tx_req = False; res.append(int(self._tx_hold * g)); continue
+>                 if (v & 3) == 3: self._tx_req = True
+274,276d233
+<             if AC01_FILT:                                        # DAC reconstruction low-pass (corner FCLK/40 = fs*B/40)
+<                 lp = self.__dict__.setdefault('_dac_lp', _Lp6()); lp.set(self.rate * (self.aic[2] or 18) / 40.0, self.rate)
+<                 out = [max(-32768, min(32767, int(round(lp(v))))) for v in out]
+285c242
+<         b = b''.join(bytes(x) for x in self.dsp_bursts)[16:(None if PROFILE['dsp_base_bytes'] is None else 16 + PROFILE['dsp_base_bytes'])]      # resident bank size is per firmware (profile)
+---
+>         b = b''.join(bytes(x) for x in self.dsp_bursts)[16:16 + 55420]
+287,291d243
+<         self.sender_pcs = None
+<         if PROFILE['sender_scan']:                           # the message sender's OUT 005E/005F instructions move between DSP builds: find them in the loaded image
+<             self.sender_pcs = set()
+<             for a in range(0x8000, 0xFFFE):
+<                 if (self.dsp.pm[a] >> 8) == 0x0C and self.dsp.pm[a + 1] in (0x5E, 0x5F): self.sender_pcs.update((a + 1, a + 2))
+293,299c245,246
+<         pre = PROFILE['isr_presets']
+<         for i in range(11):
+<             self.dsp.set_ivec_ind(i, 0x60 + i)                     # interrupt n vectors through data cell 0x60 + n (what the on-chip ROM stubs do)
+<             if pre: self.dsp.dm[0x60 + i] = pre['all']             # presets only for firmware that needs them before its own init
+<         if pre:
+<             for k, v in pre.items():
+<                 if k != 'all': self.dsp.dm[k] = v
+---
+>         for i in range(11): self.dsp.set_ivec_ind(i, 0x60 + i); self.dsp.dm[0x60 + i] = 0x81AE
+>         self.dsp.dm[0x65] = 0x8189; self.dsp.dm[0x68] = 0x820C; self.dsp.dm[0x69] = 0x81B7
+303c250
+<         self.dsp_started_at = self.cpu.cycles; self.next_samp = self.cpu.cycles + self.sample_cyc; self.cpu.stop()
+---
+>         self.dsp_started_at = self.cpu.cycles; self._dsp_target = self.dsp.total_cycles(); self.next_samp = self.cpu.cycles + self._step_sc(); self.cpu.stop()
+312c259
+<         return self.port_store.get(q, 0) if PORT_RB else 0                              # other ports read back the last value written (courier-emu keeps m_io[port])
+---
+>         return 0
+322c269,271
+<             self.set_rate(AC01_CLAMP.get(r, r))
+---
+>             r2 = AC01_CLAMP.get(r, r)
+>             if r2 == r: self.set_rate(r2, 12000 * n, a * b)   # exact rational rate fs = 12000*N/(A*B); cycles/sample are exact fractions, not floor divisions
+>             else: self.set_rate(r2)                            # clamped rate: fall back to exact division by the integer rate
+331,332c280,282
+<     def set_rate(self, r):
+<         """Codec sample rate (Hz): 7200 or 9600; changes the CPU clocks and DSP cycles per sample and the host heartbeat divider (2400 Hz symbol heartbeat)."""
+---
+>     def set_rate(self, r, num=None, den=None):
+>         """Codec sample rate (Hz): 7200 or 9600; changes the CPU clocks and DSP cycles per sample and the host heartbeat divider (2400 Hz symbol heartbeat).
+>         num/den = exact rational rate fs = num/den Hz (12000*N/(A*B)); cycles/sample are then exact fractions stepped by Bresenham, never floor-divided."""
+334,337c284,293
+<         self.rate_idx.append((len(self.tx_all) + ((self.dsp.dxr_head() - self.tx_seen) if self.dsp is not None else 0), r))   # (samples produced so far, new rate): lets the WAV export put every sample at its true rate
+<         self.rate = r; self.sample_cyc = CPU_HZ // r
+<         if not DSP_CLK_FIXED: self.dsp_cps = DSP_CPS            # the DSP clock scales with the codec/symbol clock (one symbol = 3 samples = PRD 16800 cycles at every rate)
+<         else: self.dsp_cps = DSP_HZ // r
+---
+>         self.rate = r
+>         if num is not None and den is not None:
+>             self._sc_num = CPU_HZ * den; self._sc_den = num    # sample_cyc = CPU_HZ / fs
+>             self._dc_num = DSP_HZ * den; self._dc_den = num    # dsp_cps = DSP_HZ / fs
+>         else:
+>             self._sc_num = CPU_HZ; self._sc_den = r
+>             self._dc_num = DSP_HZ; self._dc_den = r
+>         if not DSP_CLK_FIXED: self._dc_num = DSP_CPS; self._dc_den = 1   # old scaling model, opt-out only: DSP cycles/sample constant
+>         self._sc_rem = 0; self._dc_rem = 0
+>         self.sample_cyc = self._sc_num // self._sc_den; self.dsp_cps = self._dc_num // self._dc_den
+339,354c295,300
+<     def _cmd_override(self):
+<         cmd = self.h2d[0x5E] & 0xFF
+<         if not hasattr(self, '_ovr'):
+<             self._ovr = {'arg': {}, 'pos': {}, 'ren': {}, 'cnt': {}}
+<             for e in CMD_OVR.split(';'):
+<                 e = e.strip()
+<                 if not e: continue
+<                 if '>' in e: a, b = e.split('>'); self._ovr['ren'][int(a, 16)] = int(b, 16)
+<                 else:
+<                     k, v = e.split('='); v = int(v, 16)
+<                     if '@' in k: c, i = k.split('@'); self._ovr['pos'][(int(c, 16), int(i))] = v
+<                     else: self._ovr['arg'][int(k, 16)] = v
+<         o = self._ovr; n = o['cnt'].get(cmd, 0); o['cnt'][cmd] = n + 1
+<         if cmd in o['ren']: self.h2d[0x5E] = (self.h2d[0x5E] & 0xFF00) | o['ren'][cmd]
+<         val = o['pos'].get((cmd, n % 6 + 1), o['arg'].get(cmd))
+<         if val is not None: self.h2d[0x5F] = (self.h2d[0x5F] & 0xFF00) | val
+---
+>     def _step_sc(self):
+>         """Next exact 186 cycles for one codec sample: Bresenham step on _sc_num/_sc_den. Sum over K samples is the exactly-rounded K * (_sc_num/_sc_den); error < 1 cycle forever, never accumulating."""
+>         t = self._sc_num + self._sc_rem; c = t // self._sc_den; self._sc_rem = t % self._sc_den; self.sample_cyc = c; return c
+>     def _step_dc(self):
+>         """Next exact DSP cycles for one codec sample: Bresenham step on _dc_num/_dc_den."""
+>         t = self._dc_num + self._dc_rem; c = t // self._dc_den; self._dc_rem = t % self._dc_den; self.dsp_cps = c; return c
+358d303
+<         if not 0x56 <= q <= 0x5F: self.port_store[q] = v & 0xFFFF
+368,369c313
+<             self.h2d_pending = 0
+<             if not IFACE403: self.evt |= 1; self.int0_req = 1            # DSP consumed host word -> TX slot freed event
+---
+>             self.h2d_pending = 0; self.evt |= 1; self.int0_req = 1            # DSP consumed host word -> TX slot freed event
+375c319
+<         if 0x58 <= q <= 0x5F and ((self.dsp.get("PC") in self.sender_pcs) if self.sender_pcs is not None else (0x83D6 <= self.dsp.get("PC") <= 0x8420)):      # only the DSP message-send routine produces messages
+---
+>         if 0x58 <= q <= 0x5F and 0x83D6 <= self.dsp.get("PC") <= 0x8420:      # only the DSP message-send routine produces messages
+377c321
+<             if q == 0x5F: self.d2h_valid = 1; self.evt |= (0 if IFACE403 else 2); self.int0_req = 0 if IFACE403 else 1; self.msg_log.append((len(self.tx_all) + (self.dsp.dxr_head() - self.tx_seen), self.d2h[0x5C], self.d2h[0x5D], self.d2h[0x5E], self.d2h[0x5F], self.cpu.cycles))   # DSP->host (last field: CPU cycles at the message) message complete (host reads type at port 0x58 = word 0x5C low byte)
+---
+>             if q == 0x5F: self.d2h_valid = 1; self.evt |= 2; self.int0_req = 1; self.msg_log.append((len(self.tx_all) + (self.dsp.dxr_head() - self.tx_seen), self.d2h[0x5C], self.d2h[0x5D], self.d2h[0x5E], self.d2h[0x5F], self.cpu.cycles))   # DSP->host (last field: CPU cycles at the message) message complete (host reads type at port 0x58 = word 0x5C low byte)
+558,566c502,505
+<         if SEC_FRAME and AC01_MODEL and self.aic_req:         # a primary word with D1 D0 = 11 was just consumed: the AC01 clocks its secondary frame half a primary interval later (datasheet 2.4); it carries the control word, delivers no ADC word and no DAC sample
+<             half = self.dsp_cps // 2; self.dsp.run(half)
+<             h = self.dsp.dxr_head()
+<             if h != self.aic_h:
+<                 rg = self.dsp.dxr_ring(); self.sec_abs.update(range(self.aic_h, h)); self._aic_feed([rg[i & 0xFFFF] for i in range(max(self.aic_h, h - 64), h)]); self.aic_h = h
+<             if INT23: self.dsp.irq(c5x.INT3)
+<             self.dsp.serial_tick(0)                           # secondary DOUT: no conversion result (register readback is not modelled, reads 0)
+<             self.sec_n += 1; self.dsp.run(self.dsp_cps - half)
+<         else: self.dsp.run(self.dsp_cps)
+---
+>         if self._dsp_target is None: self._dsp_target = self.dsp.total_cycles()
+>         self._dsp_target += self._step_dc()                  # exact DSP cycles for this sample (Bresenham); the target is absolute on the DSP's own cycle counter, so a whole-instruction overshoot in c5x_run is absorbed by the next tick's budget instead of accumulating
+>         _b = self._dsp_target - self.dsp.total_cycles()
+>         if _b > 0: self.dsp.run(_b)
+569d507
+<             if SEC_FRAME and self.aic_req: self.sec_abs.add(self.aic_h)     # control word that missed the half-period slot
+572c510
+<             for _ in range(min(sum(1 for i in range(self._dxr_h, h) if i not in self.sec_abs), 8)):
+---
+>             for _ in range(min(h - self._dxr_h, 8)):
+581,587d518
+<         if AC01_FILT:                                           # ADC anti-alias low-pass (+ single-pole high-pass unless register 5 DS02 disables it), then the converter
+<             lp = self.__dict__.setdefault('_adc_lp', _Lp6()); lp.set(self.rate * (self.aic[2] or 18) / 40.0, self.rate); x = lp(float(base))
+<             if not (self.aic[5] >> 2) & 1:
+<                 import math; k = 1.0 / (1.0 + 2 * math.pi * (self.rate / 200.0) / self.rate); hp = self.__dict__.setdefault('_adc_hp', [0.0, 0.0]); y = k * (hp[0] + x - hp[1]); hp[0] = y; hp[1] = x; x = y
+<             base = int(round(x))
+<         if AC01_LAT:
+<             q = self.__dict__.setdefault('_lat_q', __import__('collections').deque([0] * AC01_LAT)); q.append(base); base = q.popleft()
+591d521
+<         if INT23: self.dsp.irq(c5x.INT3)                      # AC01 FS -> DSP INT3 (pin 40), every frame, independent of the serial port
+593,598c523,524
+<         if HB_TIMER:                                            # host heartbeat = the DSP timer (TOUT -> ASIC -> CPU INT0): 40.32 MHz / ~16800 = 2400 Hz at every codec rate (2401 Hz measured on the 403 board)
+<             e = self.dsp.timer_expiries(); n = e - self._hb_e; self._hb_e = e; self.hb_count += n
+<             if self.heartbeat and n: self.hb_pending = True
+<         else:
+<             self.hb_count += 1
+<             if self.heartbeat and self.hb_count % self.hb_ticks == 0: self.hb_pending = True
+---
+>         self.hb_count += 1
+>         if self.heartbeat and self.hb_count % self.hb_ticks == 0: self.hb_pending = True
+620c546
+<             while now >= self.next_samp: self._sample(); self.next_samp += self.sample_cyc
+---
+>             while now >= self.next_samp: self._sample(); self.next_samp += self._step_sc()
+622c548
+<             if (not IFACE403) and (not self.h2d_pending) and cpu.rd16(0x29A) != cpu.rd16(0x29C):      # SV25 supervisor's ring pointers; on the 403 supervisor INT0 is the free-running heartbeat only
+---
+>             if (not self.h2d_pending) and cpu.rd16(0x29A) != cpu.rd16(0x29C):
+624,625c550,551
+<             if self.hb_pending or ((not IFACE403) and (self.evt & ~self.evt_seen)):
+<                 if (cpu.rd16(0x32), cpu.rd16(0x30)) not in PROFILE['int0_unset']:   # only once the firmware has installed its INT0 handler
+---
+>             if self.hb_pending or (self.evt & ~self.evt_seen):
+>                 if (cpu.rd16(0x32), cpu.rd16(0x30)) not in ((0, 0x305), (0, 0)):   # only once the firmware has installed its INT0 handler
+641a568,572
+>         try: return self._run(end)
+>         finally: self.take_tx()                 # keep tx_all complete (the DSP output ring only holds 65536 samples)
+>     def run_to(self, end):
+>         """Run to an absolute CPU-cycle deadline on the link's shared clock.
+>         A machine that overshoots its deadline (whole instructions) does NOT keep the overshoot: the next deadline is absolute, so it simply runs fewer cycles next slice."""
+3a4
+> from collections import deque
+7,20d7
+< import ctypes
+< _rl = ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libresamp.so'))
+< _rl.rs_new.restype = ctypes.c_void_p; _rl.rs_run.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double]
+< LINE8K = os.environ.get('LINE8K', '0') == '1'    # route each direction through the 8000 Hz PCM telephone line (codec rate -> 8 kHz -> far codec rate, band-limited); LINE8K=0 = old direct copy / linear interpolation
+< class Resampler:
+<     def __init__(self): self.h = _rl.rs_new()
+<     def __call__(self, xs, r_in, r_out):
+<         n = len(xs)
+<         if not n: return []
+<         a = (ctypes.c_int16 * n)(*[max(-32768, min(32767, int(v))) for v in xs]); mo = int(n * r_out / r_in) + 4; o = (ctypes.c_int16 * mo)()
+<         return list(o[:_rl.rs_run(self.h, a, n, o, mo, float(r_in), float(r_out))])
+< DIAL_DWELL = float(os.environ.get('DIAL_DWELL', '0.5'))     # seconds between the end of the dialled digit and ring voltage at the callee (was a fixed 3.0 s)
+< RING_ON = float(os.environ.get('RING_ON', '1.0'))           # seconds of ring voltage per cadence period
+< RING_PERIOD = float(os.environ.get('RING_PERIOD', '6.0'))   # cadence period
+22,27c9
+<     """Two Machines joined by a line. TIME POLICY: both machines are advanced against ONE shared absolute clock (self._gt, in CPU cycles). Every slice the clock
+<     moves by self.slice; each machine is then run for (clock - its own elapsed cycles), so a machine whose last instruction/event ran past the slice gets a
+<     shorter budget next time and the overshoot is repaid. With relative budgets (m.run(slice)) the overshoot accumulated differently in A and B (~2% at
+<     1000-cycle slices), the machines drifted apart and one receive queue grew to ~46 samples. Samples are handed over once per slice (latency <= one slice);
+<     the call state machine (co_step) is fed 100k-cycle windows whatever the slice is. LinkMP (link_mp.py) follows the same policy."""
+<     def __init__(self, a=None, b=None, slice_=int(os.environ.get('LINK_SLICE', '1000'))):   # CPU cycles per lockstep slice; ~1960 = one codec sample at 10267 Hz / 20.16 MHz
+---
+>     def __init__(self, a=None, b=None, slice_=1_000):
+30c12,13
+<         self.slice = slice_; self.audio = {'a': [], 'b': []}; self.gain = 1.0; self.echo = 0.0; self.gate = False     # gate: mute A->B between A starting its carrier (cmd 0x21) and B starting its mode (cmd 0x20)     # echo = hybrid leakage of a side's own transmit into its receive
+---
+>         self.slice = slice_; self.clock = 0   # shared absolute clock (CPU cycles): both machines run to its deadlines, so a slice overshoot is not kept by either machine
+>         self.audio = {'a': [], 'b': []}; self.gain = 1.0; self.echo = 0.0; self.gate = False     # gate: mute A->B between A starting its carrier (cmd 0x21) and B starting its mode (cmd 0x20)     # echo = hybrid leakage of a side's own transmit into its receive
+32d14
+<         self._line = {d: (Resampler(), Resampler()) for d in ('ab', 'ba')}
+49c31
+<         elif self.state == 'dialing' and t > DIAL_DWELL:
+---
+>         elif self.state == 'dialing' and t > 3.0:
+55c37
+<             on = (tr % RING_PERIOD) < RING_ON                                # ring cadence (US: 2 s on, 4 s off; shortened for faster test calls)
+---
+>             on = (tr % 6.0) < 2.0                                            # US cadence: 2 s on, 4 s off
+63,86d44
+<     def write_wav(self, path, rate=22050, first_chunk=0):
+<         """Stereo wav (left = caller B, right = answerer A) at ONE true sample rate: the audio of each modem is cut at its codec-rate changes (Machine.rate_idx) and every
+<         constant-rate segment is resampled (sinc) from its real rate (7200 / 8640 / 9600 / 10267 Hz...) to `rate`; the two channels are padded to the same duration.
+<         A file written at the nominal 7200 Hz without this plays everything recorded at 9600 Hz at 0.75x speed and pitch (10267 Hz: 0.70x)."""
+<         import wave, struct
+<         rs = Resampler(); out = {}
+<         for k, m in (('a', self.a), ('b', self.b)):
+<             xs = [((v & 0xFFFF) ^ 0x8000) - 0x8000 for v in self.audio[k]]; base = len(m.tx_all) - len(xs)
+<             cuts = [(max(0, i - base), r) for i, r in m.rate_idx]
+<             cur = [r for i, r in m.rate_idx if i <= base][-1] if any(i <= base for i, r in m.rate_idx) else 7200
+<             segs = []; pos = 0
+<             for i, r in [(i, r) for i, r in cuts if i > 0]:
+<                 if i > pos: segs.append((pos, min(i, len(xs)), cur)); pos = i
+<                 cur = r
+<             if pos < len(xs): segs.append((pos, len(xs), cur))
+<             o = []
+<             for a, b, r in segs:
+<                 o += rs(xs[a:b], r, rate) if b > a else []
+<             out[k] = o
+<         n = max(len(out['a']), len(out['b']))
+<         for k in 'ab': out[k] += [0] * (n - len(out[k]))
+<         with wave.open(path, 'wb') as w:
+<             w.setnchannels(2); w.setsampwidth(2); w.setframerate(rate)
+<             w.writeframes(b''.join(struct.pack('<hh', max(-32768, min(32767, out['b'][i])), max(-32768, min(32767, out['a'][i]))) for i in range(n)))
+94,100c52,53
+<             # one shared absolute clock: a machine that overshot its slice (the last instruction/event ran past the budget) gets a shorter budget next time,
+<             # so A and B never drift apart (relative budgets let the overshoot accumulate: ~2% per machine at 1000-cycle slices)
+<             if not hasattr(self, '_gt'): self._gt = 0; self._off = (self.a.cpu.cycles, self.b.cpu.cycles)
+<             self._gt += self.slice; done += self.slice
+<             na = self._gt - (self.a.cpu.cycles - self._off[0]); nb = self._gt - (self.b.cpu.cycles - self._off[1])
+<             if na > 0: self.a.run(na)
+<             if nb > 0: self.b.run(nb)
+---
+>             deadline = self.clock + self.slice
+>             self.a.run_to(deadline); self.b.run_to(deadline); self.clock = deadline; done += self.slice
+105c58
+<                 if b'RING' in xa: self.ring_seen_at = self.samples()
+---
+>                 if not self.ring_seen_at and b'RING' in self.txt['a']: self.ring_seen_at = self.samples()   # RING may span many slices at small slice sizes; detect it in the accumulated text, not one chunk (a split RING was never seen)
+107,109c60
+<             self._acc_a = getattr(self, '_acc_a', []) + ta; self._acc_b = getattr(self, '_acc_b', []) + tb; self._acc_cyc = getattr(self, '_acc_cyc', 0) + self.slice
+<             if self._acc_cyc >= 100_000:                                     # the call state machine sees 100k-cycle windows whatever the exchange slice is
+<                 self.co_step(self._acc_a, self._acc_b); self._acc_a = []; self._acc_b = []; self._acc_cyc = 0
+---
+>             self.co_step(ta, tb)
+116,121c67
+<                 if LINE8K and not self.echo:
+<                     ab, ba = self._line['ab'], self._line['ba']
+<                     rb = [int(v) & 0xFFFF for v in ab[1](ab[0]([v * g_ab for v in ta], self.a.rate, 8000), 8000, self.b.rate)]
+<                     ra = [int(v) & 0xFFFF for v in ba[1](ba[0]([v * self.gain for v in tb], self.b.rate, 8000), 8000, self.a.rate)]
+<                     self.b.rxbuf.extend(self._delayed('b', rb)); self.a.rxbuf.extend(self._delayed('a', ra))
+<                 elif self.a.rate == self.b.rate:
+---
+>                 if self.a.rate == self.b.rate:
+127a74,109
+>     def run_lockstep(self, cycles):
+>         """Per-sample lockstep exchange on the shared absolute clock (w25a). Each iteration advances both machines to the next sample tick of either machine (run_to absolute deadlines, plus an explicit _service/_icu_eval so a tick landing exactly on its deadline is processed and next_samp advances), then exchanges the newly produced audio with exactly one sample of link latency: per direction the newest produced sample is held back one iteration and everything older is delivered. Both machines therefore execute identical cycle counts for identical sample counts (exact rational cycles/sample, machine.py Bresenham), and the phasor phase is set by the two sample clocks, not by a slice size. The slice-based run() above is unchanged and remains available for comparison."""
+>         end = self.clock + cycles
+>         qa = deque(); qb = deque()   # A->B / B->A transformed samples awaiting delivery (newest held back one iteration)
+>         while self.clock < end:
+>             nxt = end
+>             for m in (self.a, self.b):
+>                 if m.next_samp < nxt: nxt = m.next_samp
+>             if nxt <= self.clock: nxt = min(end, self.clock + SAMPLE_CYC)   # pre-DSP-start (next_samp INF): fixed step; also covers a deadline already passed by an overshoot
+>             self.a.run_to(nxt); self.b.run_to(nxt)
+>             self.a._service(self.a.cpu.cycles); self.a._icu_eval()   # a tick landing exactly on its deadline is otherwise processed only at the next run_to, which would stall this loop (next_samp never advances)
+>             self.b._service(self.b.cpu.cycles); self.b._icu_eval()
+>             self.clock = nxt
+>             ta = self._new(self.a, 'a'); tb = self._new(self.b, 'b')
+>             xa = self.a.dte_text(); xb = self.b.dte_text()
+>             if xa:
+>                 self.txt['a'] += xa
+>                 if not self.ring_seen_at and b'RING' in self.txt['a']: self.ring_seen_at = self.samples()
+>             if xb: self.txt['b'] += xb
+>             self.co_step(ta, tb)
+>             if self.state == 'connected':
+>                 g_ab = self.gain
+>                 if self.gate:
+>                     a21 = any((c & 0xFF) == 0x21 for t, c, x in self.a.cmd_log16); b20 = any((c & 0xFF) == 0x20 for t, c, x in self.b.cmd_log16)
+>                     if a21 and not b20: g_ab = 0.0
+>                 if self.a.rate == self.b.rate:
+>                     n = min(len(ta), len(tb))
+>                     qa.extend(int(ta[k] * g_ab + self.echo * tb[k]) & 0xFFFF for k in range(n)); qa.extend(int(v * g_ab) & 0xFFFF for v in ta[n:])
+>                     qb.extend(int(tb[k] * self.gain + self.echo * ta[k]) & 0xFFFF for k in range(n)); qb.extend(int(v * self.gain) & 0xFFFF for v in tb[n:])
+>                 else:                                                        # different codec rates: resample each direction to the receiver's rate (stateful linear interpolation, fed one batch at a time — identical output to the block form)
+>                     qa.extend(int(v * g_ab) & 0xFFFF for v in self._rs_ab(ta, self.a.rate, self.b.rate))
+>                     qb.extend(int(v * self.gain) & 0xFFFF for v in self._rs_ba(tb, self.b.rate, self.a.rate))
+>                 if len(qa) > 1:                                            # deliver all but the newest: exactly one sample of link latency
+>                     _n = len(qa) - 1; self.b.rxbuf.extend(self._delayed('b', [qa.popleft() for _ in range(_n)]))
+>                 if len(qb) > 1:
+>                     _n = len(qb) - 1; self.a.rxbuf.extend(self._delayed('a', [qb.popleft() for _ in range(_n)]))
+9,13c9
+< 
+< typedef uint32_t (*io_rd_fn)(void *ctx, uint16_t port, int w);
+< typedef void (*io_wr_fn)(void *ctx, uint16_t port, int w, uint32_t v);
+< typedef uint32_t (*mm_rd_fn)(void *ctx, uint32_t addr, int w);
+< typedef void (*mm_wr_fn)(void *ctx, uint32_t addr, int w, uint32_t v);
+---
+> #include "i186.h"   /* public API (hook types, R_* ids, ST_* status); rank 44 */
+17d12
+< enum { ST_OK = 0, ST_BP = 1, ST_BADOP = 2, ST_HLT = 3, ST_STOP = 4 };
+19c14
+< typedef struct {
+---
+> typedef struct C {
+30a26,30
+>     int tf_supp;                         /* single-step suppress: set by segment-register loads / WAIT, covers this instruction only */
+>     int bp_skip;                         /* skip the bp check once: set when i186_run returns ST_BP, consumed by the next run's first instruction */
+>     int et;                              /* ESC trap bit (Relocation Register ET, reset 0): if set, ESC faults Type 7 */
+>     int test_pin;                        /* TEST pin for WAIT (board property, default 1 = active); WAIT suspends while 0 */
+>     int waiting;                         /* set when WAIT suspends on TEST inactive (wakes on interrupt or TEST active) */
+32,35d31
+<     int ud_trap;                         /* 1 = an undefined opcode raises type 6 (invalid opcode, IP = the faulting instruction) instead of stopping with ST_BADOP */
+<     int rep_resume;                      /* a REP string loop yielded and is being resumed (no second start-up charge) */
+<     uint64_t run_end;                    /* cycle budget end of the current i186_run (REP string loops stop there and resume) */
+<     double cscale, cfrac;                /* CPU speed knob: charged clocks per instruction are multiplied by cscale (1.0 = manual Table D-2) */
+43c39
+<     int seg_ovr, rep, repz; uint8_t opc;
+---
+>     int seg_ovr, rep, repz;
+44a41
+>     int cur_op;                              /* opcode being executed (for mem_delta) */
+63c60
+<      3,  3,  3,  3,  3,  4,  3,  7,  3,  3,  3,  3,  3,  4,  3,  7,
+---
+>      3,  3,  3,  3,  3,  4,  3,  8,  3,  3,  3,  3,  3,  4,  3,  7,
+68,70c65,67
+<      4,  4,  4,  4,  3,  3,  4,  4,  2,  2,  2,  2,  2,  0,  2, 14,
+<      3,  3,  3,  3,  3,  3,  3,  3,  2,  4, 23,  3,  9,  8,  3,  2,
+<      9,  9,  8,  8,  5,  5,  5,  5,  3,  3,  5,  5,  5,  5,  5,  5,
+---
+>      4,  4,  4,  4,  3,  3,  4,  4,  2,  2,  2,  2,  2,  0,  2, 10,
+>      3,  3,  3,  3,  3,  3,  3,  3,  2,  4, 23,  6,  9,  8,  3,  2,
+>      9,  9,  8,  8,  5,  5,  5,  5,  3,  4,  5,  5,  5,  5,  5,  5,
+72c69
+<      6,  6, 18, 16, 12, 12,  6,  6, 15,  8, 25, 22,  3,  5,  3, 28,
+---
+>      6,  6, 18, 16, 12, 12, 12, 12, 15,  8, 25, 22,  3,  5,  4, 28,
+81d77
+<     c->cscale = 1.0;
+84a81
+>     c->test_pin = 1;                     /* TEST active: no 80C187 attached, WAIT is a no-op */
+88,107c85,108
+< uint8_t *i186_mem(C *c) { return c->mem; }
+< uint32_t *i186_hits(C *c) { return c->hits; }
+< uint32_t *i186_ring(C *c) { return c->ring; }
+< uint32_t i186_ring_idx(C *c) { return c->ring_i; }
+< uint16_t *i186_ioarr(C *c) { return c->ioarr; }
+< void i186_set_hooks(C *c, io_rd_fn ir, io_wr_fn iw, mm_rd_fn mr, mm_wr_fn mw, void *ctx) { c->io_rd = ir; c->io_wr = iw; c->mm_rd = mr; c->mm_wr = mw; c->ctx = ctx; }
+< void i186_set_mmio_page(C *c, uint32_t page, int on) { if (page < 256) c->mmpage[page] = on; }
+< void i186_set_ro_page(C *c, uint32_t page, int on) { if (page < 256) c->ro[page] = on; }
+< void i186_set_bp(C *c, uint32_t phys, int on) { if (phys < 0x100000) c->bp[phys] = on; }
+< void i186_stop(C *c) { c->stop = 1; }
+< void i186_irq(C *c, int vec) { c->irq_pending = 1; c->irq_vec = vec & 0xFF; }
+< void i186_nmi(C *c) { c->nmi_pending = 1; }
+< void i186_irq_clear(C *c) { c->irq_pending = 0; }
+< int i186_irq_pending(C *c) { return c->irq_pending; }
+< void i186_set_ud_trap(C *c, int m) { c->ud_trap = m; }
+< void i186_set_cycle_model(C *c, int m) { c->cyc_model = m; }
+< void i186_set_cycle_scale(C *c, double f) { c->cscale = f > 0 ? f : 1.0; c->cfrac = 0; }
+< uint64_t i186_cycles(C *c) { return c->cycles; }
+< void i186_add_cycles(C *c, uint64_t n) { c->cycles += n; }
+< uint32_t i186_get_badop(C *c) { return c->last_badop_pc | ((uint32_t)c->last_badop << 24); }
+---
+> uint8_t *i186_mem(C *c) { return c ? c->mem : NULL; }
+> uint32_t *i186_hits(C *c) { return c ? c->hits : NULL; }
+> uint32_t *i186_ring(C *c) { return c ? c->ring : NULL; }
+> uint32_t i186_ring_idx(C *c) { return c ? (c->ring_i & 255) : 0; }   /* index into the 256-entry ring, not the raw count */
+> uint16_t *i186_ioarr(C *c) { return c ? c->ioarr : NULL; }
+> void i186_set_hooks(C *c, io_rd_fn ir, io_wr_fn iw, mm_rd_fn mr, mm_wr_fn mw, void *ctx) { if (!c) return; c->io_rd = ir; c->io_wr = iw; c->mm_rd = mr; c->mm_wr = mw; c->ctx = ctx; }
+> void i186_set_mmio_page(C *c, uint32_t page, int on) { if (!c) return; if (page < 256) c->mmpage[page] = on; }
+> void i186_set_ro_page(C *c, uint32_t page, int on) { if (!c) return; if (page < 256) c->ro[page] = on; }
+> void i186_set_bp(C *c, uint32_t phys, int on) { if (!c) return; if (phys < 0x100000) c->bp[phys] = on; }
+> void i186_stop(C *c) { if (!c) return; c->stop = 1; }
+> void i186_irq(C *c, int vec) { if (!c) return; c->irq_pending = 1; c->irq_vec = vec & 0xFF; }
+> void i186_nmi(C *c) { if (!c) return; c->nmi_pending = 1; }
+> void i186_irq_clear(C *c) { if (!c) return; c->irq_pending = 0; }
+> int i186_irq_pending(C *c) { return c ? c->irq_pending : 0; }
+> int i186_irq_vec(C *c) { return c ? c->irq_vec : 0; }   /* pending IRQ vector (0-255), for the host */
+> int i186_status(C *c) { return c ? c->status : 0; }   /* status of the last i186_run return (ST_*) */
+> void i186_set_cycle_model(C *c, int m) { if (!c) return; c->cyc_model = m ? 1 : 0; }   /* normalised to 0/1 */
+> void i186_set_et(C *c, int et) { if (!c) return; c->et = et ? 1 : 0; }   /* ESC trap bit (Relocation Register ET) */
+> void i186_set_test(C *c, int t) { if (!c) return; c->test_pin = t ? 1 : 0; }   /* TEST pin for WAIT */
+> uint32_t *i186_unmapped_log(C *c) { return c ? c->unmapped_log : NULL; }
+> int i186_unmapped_n(C *c) { return c ? c->unmapped_n : 0; }
+> uint64_t i186_cycles(C *c) { return c ? c->cycles : 0; }
+> void i186_add_cycles(C *c, uint64_t n) { if (!c) return; c->cycles += n; }
+> uint32_t i186_get_badop(C *c) { return c ? (c->last_badop_pc | ((uint32_t)c->last_badop << 24)) : 0; }
+116c117
+< enum { R_AX, R_CX, R_DX, R_BX, R_SP, R_BP, R_SI, R_DI, R_ES, R_CS, R_SS, R_DS, R_IP, R_FLAGS };
+---
+> /* R_* register ids are declared in i186.h. */
+117a119
+>     if (!c) return 0;
+125a128
+>     if (!c) return;
+129a133
+>     if (!c) return;
+132a137
+>     c->bp_skip = c->tf_supp = c->et = c->waiting = 0;   /* transient run state; ET reset state is 0 (manual Ch.4 Fig 4-1). test_pin is board config and survives reset. */
+146c151,154
+<     if (c->mmpage[a >> 12] && c->mm_rd) return c->mm_rd(c->ctx, a, w);
+---
+>     if (c->mmpage[a >> 12]) {
+>         if (c->mm_rd) return c->mm_rd(c->ctx, a, w);
+>         c->unmapped_log[c->unmapped_n++ & 63] = a;   /* page marked MMIO but no read hook: log it, fall through to RAM */
+>     }
+153c161,164
+<     if (c->mmpage[a >> 12] && c->mm_wr) { c->mm_wr(c->ctx, a, w, v); return; }
+---
+>     if (c->mmpage[a >> 12]) {
+>         if (c->mm_wr) { c->mm_wr(c->ctx, a, w, v); return; }
+>         c->unmapped_log[c->unmapped_n++ & 63] = a;   /* page marked MMIO but no write hook: log it, fall through to RAM/RO */
+>     }
+172,173c183,190
+< /* extra clocks of the memory form over (register form + 6), from 80C186EB manual Table D-2 (16-bit, fastest case) */
+< static int memextra(uint8_t op, int reg) {
+---
+> /* ---------------- modrm ---------------- */
+> /* Memory-operand delta: Table D-2 (80C186EB manual) mem value minus reg value,
+>  * per opcode (and reg field for the group opcodes). decode_modrm adds this
+>  * instead of the old flat +6 (P2-20); the flat +6 was the bulk of the 5.2%
+>  * undercharge. NOT/NEG mem = 10 comes from the datasheet: the detailed
+>  * manual prints a single "3" (register figure) and no mem figure. */
+> static int mem_delta(C *c) {
+>     int op = c->cur_op, rf = c->regf;
+175,184c192,225
+<     case 0x88: case 0x89: return 4;                        /* MOV r/m,r 12 */
+<     case 0x8A: case 0x8B: case 0x8E: return 1;             /* MOV r,r/m / sreg,r/m 9 */
+<     case 0x8C: return 3;                                   /* MOV r/m,sreg 11 */
+<     case 0xC7: return 1;                                   /* MOV r/m,imm16 13 */
+<     case 0x80: case 0x81: case 0x82: case 0x83: return reg == 7 ? 0 : 6;   /* ALU imm,r/m read-modify-write 16 (CMP 10) */
+<     case 0xFE: return reg < 2 ? 6 : 0;                     /* INC/DEC r/m 15 */
+<     case 0xFF: return reg < 2 ? 6 : reg == 6 ? 7 : 0;      /* INC/DEC r/m 15, PUSH r/m 16 */
+<     case 0x86: case 0x87: return 7;                        /* XCHG r/m,r 17 */
+<     case 0x84: case 0x85: return 1;                        /* TEST r/m,r 10 */
+<     case 0xF6: case 0xF7: return reg < 2 ? 1 : 0;          /* TEST r/m,imm 10 */
+---
+>     case 0x00: case 0x01: case 0x02: case 0x03:
+>     case 0x08: case 0x09: case 0x0A: case 0x0B:
+>     case 0x10: case 0x11: case 0x12: case 0x13:
+>     case 0x18: case 0x19: case 0x1A: case 0x1B:
+>     case 0x20: case 0x21: case 0x22: case 0x23:
+>     case 0x28: case 0x29: case 0x2A: case 0x2B:
+>     case 0x30: case 0x31: case 0x32: case 0x33:
+>     case 0x38: case 0x39: case 0x3A: case 0x3B:
+>     case 0x84: case 0x85: case 0x8A: case 0x8B: case 0x8E:
+>         return 7;                            /* ALU / TEST / MOV reg,r/m: 3/10 or 2/9 */
+>     case 0x88: case 0x89: case 0x8F:
+>         return 10;                           /* MOV r/m,reg 2/12; POP r/m 10/20 */
+>     case 0x8C:
+>         return 9;                            /* MOV r/m,seg 2/11 */
+>     case 0x86: case 0x87:
+>         return 13;                           /* XCHG 4/17 */
+>     case 0xC6: case 0xC7:
+>         return 1;                            /* MOV imm->r/m 12/13 */
+>     case 0x69: case 0x6B:
+>         return 7;                            /* IMUL imm 22-25/29-32, mem-reg difference 7 */
+>     case 0xFE:
+>         return 12;                           /* INC/DEC byte 3/15 */
+>     case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF:
+>         return 0;                            /* ESC: single figure 6, total fixed in its case */
+>     case 0x80: case 0x81: case 0x82: case 0x83: {
+>         static const uint8_t d[8] = { 12, 6, 12, 12, 12, 12, 6, 7 }; /* ADD OR ADC SBB AND SUB XOR CMP */
+>         return d[rf];
+>     }
+>     case 0xF6: case 0xF7:
+>         return (rf == 2 || rf == 3) ? 7 : 6; /* NOT/NEG 3/10; TEST/MUL/DIV 6 */
+>     case 0xFF:
+>         return (rf <= 1) ? 12 : 6;           /* INC/DEC word 3/15; rest 6 (case extras cover the rest) */
+>     default:
+>         return 6;
+186,187d226
+<     if (op < 0x40 && (op & 7) < 4) return 1;               /* ALU r/m,r and r,r/m 10 */
+<     return 0;
+189,190d227
+< 
+< /* ---------------- modrm ---------------- */
+194c231
+<     if (c->cyc_model) c->cycles += 6 + memextra(c->opc, c->regf);   /* memory operand: EA + bus cycle, plus the per-form difference to Table D-2 */
+---
+>     if (c->cyc_model) c->cycles += mem_delta(c);   /* memory operand: EA + bus cycle, per Table D-2 */
+254c291,295
+< static int bad(C *c, uint8_t op) { c->status = ST_BADOP; c->last_badop = op; c->last_badop_pc = c->cur_pc; return 0; }
+---
+> /* Undefined opcode: manual §2.3.1 Type 6 — vector through INT 6 with the return
+>  * address = next instruction (c->ip is past the fetched bytes of the faulting
+>  * instruction at every call site). The faulting PC/opcode are still recorded
+>  * for i186_get_badop diagnostics; ST_BADOP is no longer returned. */
+> static int bad(C *c, uint8_t op) { c->last_badop = op; c->last_badop_pc = c->cur_pc; do_int(c, 6); return 0; }
+260c301,306
+<     uint32_t cnt = rep ? c->r[CX] : 1; int first_it = 1; int resumed = c->rep_resume; c->rep_resume = 0;
+---
+>     uint32_t cnt = rep ? c->r[CX] : 1; int first_it = 1;
+>     /* Table D-2 REP base, charged once per REP instruction (first iteration
+>      * below; the CX==0 case is charged here since the loop never runs). */
+>     static const uint8_t base[8] = { 8, 5, 6, 6, 5, 0, 8, 8 }; /* MOVS CMPS STOS LODS SCAS - INS OUTS */
+>     int k = (op & 0xFE) == 0xA4 ? 0 : (op & 0xFE) == 0xA6 ? 1 : (op & 0xFE) == 0xAA ? 2 : (op & 0xFE) == 0xAC ? 3 : (op & 0xFE) == 0xAE ? 4 : (op & 0xFE) == 0x6C ? 6 : 7;
+>     if (c->cyc_model && rep && cnt == 0) c->cycles += base[k] - CYC[op];   /* REP x0: total = base */
+273,275c319
+<             int k = (op & 0xFE) == 0xA4 ? 0 : (op & 0xFE) == 0xA6 ? 1 : (op & 0xFE) == 0xAA ? 2 : (op & 0xFE) == 0xAC ? 3 : (op & 0xFE) == 0xAE ? 4 : (op & 0xFE) == 0x6C ? 6 : 7;
+<             static const uint8_t setup[8] = { 8, 5, 6, 6, 5, 0, 8, 8 };   /* rep: 8+8n MOVS/INS/OUTS, 5+22n CMPS, 5+15n SCAS, 6+11n LODS, 6+9n STOS */
+<             c->cycles += (rep ? per[k] + (first_it && !resumed ? setup[k] : 0) : one[k]) - (first_it ? CYC[op] : 0); first_it = 0;
+---
+>             c->cycles += rep ? per[k] + (first_it ? base[k] - CYC[op] : 0) : one[k] - (first_it ? CYC[op] : 0); first_it = 0;
+278c322
+<             if (cnt && (c->nmi_pending || (c->irq_pending && c->ifl) || (c->cyc_model && c->cycles >= c->run_end))) { c->ip = c->pstart; c->rep_resume = 1; return; } }   /* interruptible between iterations; resumes with the reduced CX. Also yields when the cycle budget is used up, so the DSP and the codec clock keep running during a long block move */
+---
+>             if (cnt && (c->nmi_pending || (c->irq_pending && c->ifl))) { c->ip = c->pstart; return; } }   /* interruptible between iterations; resumes with the reduced CX */
+291d334
+<         if (c->cyc_model && (op == 0x26 || op == 0x2E || op == 0x36 || op == 0x3E || op == 0xF0)) c->cycles += 2;   /* prefix: 2 clocks */
+292a336
+>         if (c->cyc_model && (op == 0x26 || op == 0x2E || op == 0x36 || op == 0x3E || op == 0xF0)) c->cycles += 2;   /* Table D-2: segment override / LOCK prefix = 2 */
+294c338
+<     c->opc = op;
+---
+>     c->cur_op = op;
+309,312c353,356
+<     case 0x07: c->sr[ES] = pop16(c); c->inh = 1; break; case 0x17: c->sr[SS] = pop16(c); c->inh = 1; break; case 0x1F: c->sr[DS] = pop16(c); c->inh = 1; break;
+<     /* DAA/DAS follow the 8086-family silicon: the +-6 adjust carries/borrows into CF, the second test looks at the adjusted AL (> 0x9F) */
+<     case 0x27: { int al = c->r[AX] & 0xFF, cf = c->cf; if ((al & 0xF) > 9 || c->af) { al += 6; cf |= al > 0xFF; al &= 0xFF; c->af = 1; } else c->af = 0; if (al > 0x9F || cf) { al = (al + 0x60) & 0xFF; cf = 1; } c->cf = cf; setreg(c, AX, 0, al); szp(c, al, 0); break; }
+<     case 0x2F: { int al = c->r[AX] & 0xFF, cf = c->cf; if ((al & 0xF) > 9 || c->af) { cf |= al < 6; al = (al - 6) & 0xFF; c->af = 1; } else c->af = 0; if (al > 0x9F || cf) { al = (al - 0x60) & 0xFF; cf = 1; } c->cf = cf; setreg(c, AX, 0, al); szp(c, al, 0); break; }
+---
+>     case 0x07: c->sr[ES] = pop16(c); c->inh = 1; c->tf_supp = 1; break; case 0x17: c->sr[SS] = pop16(c); c->inh = 1; c->tf_supp = 1; break; case 0x1F: c->sr[DS] = pop16(c); c->inh = 1; c->tf_supp = 1; break;
+>     /* DAA/DAS follow App. C literally: the second test uses the ENTRY CF (the +-6 carry/borrow is discarded, not ORed into CF); CF is 1 iff the second adjust fires, else 0 */
+>     case 0x27: { int al = c->r[AX] & 0xFF, cf = c->cf; if ((al & 0xF) > 9 || c->af) { al = (al + 6) & 0xFF; c->af = 1; } else c->af = 0; if (al > 0x9F || cf) { al = (al + 0x60) & 0xFF; cf = 1; } else cf = 0; c->cf = cf; setreg(c, AX, 0, al); szp(c, al, 0); break; }
+>     case 0x2F: { int al = c->r[AX] & 0xFF, cf = c->cf; if ((al & 0xF) > 9 || c->af) { al = (al - 6) & 0xFF; c->af = 1; } else c->af = 0; if (al > 0x9F || cf) { al = (al - 0x60) & 0xFF; cf = 1; } else cf = 0; c->cf = cf; setreg(c, AX, 0, al); szp(c, al, 0); break; }
+319c363
+<     case 0x54: { uint16_t v = c->r[SP]; push16(c, v); break; }                    /* 80186 (unlike the 8086) pushes the SP value from before the instruction; sibling courier-emu agrees */
+---
+>     case 0x54: { uint16_t v = c->r[SP] - 2; push16(c, v); break; }               /* 186: pushes the decremented SP */
+330,331c374,375
+<     case 0x78: case 0x79: case 0x7A: case 0x7B: case 0x7C: case 0x7D: case 0x7E: case 0x7F: { int8_t d = fetch8(c); if (cond(c, op & 0xF)) { c->ip += d; c->cycles += c->cyc_model ? 9 : 12; } break; }
+<     case 0x80: case 0x81: case 0x82: case 0x83: { decode_modrm(c); int ww = op & 1; uint32_t a = rm_rd(c, ww), b = op == 0x81 ? fetch16(c) : (op == 0x83 ? (uint16_t)(int16_t)(int8_t)fetch8(c) : fetch8(c)); if (op == 0x83 && !ww) b &= 0xFF; uint32_t r = alu(c, c->regf, a, b & MASK(ww), ww); if (c->regf != 7) rm_wr(c, ww, r); break; }
+---
+>     case 0x78: case 0x79: case 0x7A: case 0x7B: case 0x7C: case 0x7D: case 0x7E: case 0x7F: { int8_t d = fetch8(c); int t = cond(c, op & 0xF); if (t) { c->ip += d; c->cycles += c->cyc_model ? 9 : 12; } if (c->cyc_model && op == 0x79) c->cycles += t ? 2 : 1; break; }   /* JNS 5/15, the rest 4/13 */
+>     case 0x80: case 0x81: case 0x82: case 0x83: { decode_modrm(c); int ww = op & 1; uint32_t a = rm_rd(c, ww), b = op == 0x81 ? fetch16(c) : (op == 0x83 ? (uint16_t)(int16_t)(int8_t)fetch8(c) : fetch8(c)); if (op == 0x83 && !ww) b &= 0xFF; uint32_t r = alu(c, c->regf, a, b & MASK(ww), ww); if (c->regf != 7) rm_wr(c, ww, r); if (c->cyc_model && c->regf == 7) c->cycles -= 1; break; }   /* CMP imm->r/m is 3/10, the rest of the group 4/16 or 4/10 */
+336,339c380,383
+<     case 0x8C: decode_modrm(c); rm_wr(c, 1, c->sr[c->regf & 3]); break;
+<     case 0x8D: decode_modrm(c); if (c->mod != 3) c->r[c->regf] = c->ea_off; break;
+<     case 0x8E: decode_modrm(c); c->sr[c->regf & 3] = rm_rd(c, 1); c->inh = 1; break;
+<     case 0x8F: { decode_modrm(c); uint16_t v = pop16(c); rm_wr(c, 1, v); break; }
+---
+>     case 0x8C: decode_modrm(c); if (c->regf > 3) return (void)bad(c, op); rm_wr(c, 1, c->sr[c->regf & 3]); break;   /* MOV r/m,seg: reg 4-7 undefined */
+>     case 0x8D: decode_modrm(c); if (c->mod == 3) return (void)bad(c, op); c->r[c->regf] = c->ea_off; break;   /* LEA needs a memory operand */
+>     case 0x8E: decode_modrm(c); if (c->regf > 3) return (void)bad(c, op); c->sr[c->regf & 3] = rm_rd(c, 1); c->inh = 1; c->tf_supp = 1; break;   /* MOV seg,r/m: reg 4-7 undefined */
+>     case 0x8F: { decode_modrm(c); if (c->regf != 0) return (void)bad(c, op); uint16_t v = pop16(c); rm_wr(c, 1, v); break; }   /* POP r/m: reg must be 000 */
+345c389
+<     case 0x9B: break;
+---
+>     case 0x9B: c->tf_supp = 1; if (!c->test_pin) { c->waiting = 1; c->halted = 1; } break;   /* WAIT suspends while TEST is inactive; wakes on interrupt or TEST active. Manual §2.3.1 Type 1: no single-step trap after WAIT, whether or not it suspends */
+357c401
+<     case 0xC0: case 0xC1: { decode_modrm(c); uint32_t v = rm_rd(c, w); int n = fetch8(c); if (c->cyc_model) c->cycles += (c->mod == 3 ? 0 : 6) + (n & 31) - 1;   /* 5+n reg / 17+n mem */
+---
+>     case 0xC0: case 0xC1: { decode_modrm(c); uint32_t v = rm_rd(c, w); int n = fetch8(c); if (c->regf == 6) return (void)bad(c, op); if (c->cyc_model) c->cycles += (c->mod == 3 ? 0 : 6) + (n & 31) - 1;   /* 5+n reg / 17+n mem; reg field 6 has no instruction (Table D-1 "110 -") */
+361,362c405,406
+<     case 0xC4: case 0xC5: { decode_modrm(c); if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); c->r[c->regf] = mrd(c, a, 1); c->sr[op == 0xC4 ? ES : DS] = mrd(c, a + 2, 1); break; }
+<     case 0xC6: case 0xC7: { decode_modrm(c); uint32_t v = w ? fetch16(c) : fetch8(c); rm_wr(c, w, v); break; }
+---
+>     case 0xC4: case 0xC5: { decode_modrm(c); if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); c->r[c->regf] = mrd(c, a, 1); c->sr[op == 0xC4 ? ES : DS] = mrd(c, a + 2, 1); c->tf_supp = 1; break; }   /* LDS/LES load a segment register: TF trap suppressed for this instruction */
+>     case 0xC6: case 0xC7: { decode_modrm(c); uint32_t v = w ? fetch16(c) : fetch8(c); if (c->regf != 0) return (void)bad(c, op); rm_wr(c, w, v); break; }   /* MOV imm->r/m: reg must be 000 */
+365c409
+<         c->r[BP] = fp; c->r[SP] -= size; break; }
+---
+>         c->r[BP] = fp; c->r[SP] -= size; if (c->cyc_model) c->cycles += lvl == 1 ? 10 : (lvl > 1 ? 7 + 16 * (lvl - 1) : 0); break; }   /* Table D-2: L=0 15, L=1 25, L>1 22+16(n-1) */
+371c415
+<     case 0xCE: if (c->of) do_int(c, 4); break;
+---
+>     case 0xCE: if (c->of) { if (c->cyc_model) c->cycles += 2; do_int(c, 4); } break;   /* INTO taken 48 (4+2+42), not taken 4 */
+373,374c417,418
+<     case 0xD0: case 0xD1: case 0xD2: case 0xD3: { decode_modrm(c); uint32_t v = rm_rd(c, w); int n = (op & 2) ? (c->r[CX] & 0xFF) : 1;
+<         if (c->cyc_model) c->cycles += (op & 2) ? (c->mod == 3 ? 0 : 6) + (n & 31) + 1 : (c->mod == 3 ? -2 : 5);   /* by CL 5+n / 17+n, by 1: 2 / 15 */
+---
+>     case 0xD0: case 0xD1: case 0xD2: case 0xD3: { decode_modrm(c); if (c->regf == 6) return (void)bad(c, op); uint32_t v = rm_rd(c, w); int n = (op & 2) ? (c->r[CX] & 0xFF) : 1;
+>         if (c->cyc_model) c->cycles += (op & 2) ? (c->mod == 3 ? 0 : 6) + (n & 31) + 1 : (c->mod == 3 ? -2 : 5);   /* by CL 5+n / 17+n, by 1: 2 / 15; reg field 6 has no instruction */
+377a422
+>     case 0xD6: setreg(c, AX, 0, c->cf ? 0xFF : 0); break;
+379,380c424,425
+<     case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF: decode_modrm(c); break;   /* ESC: ignore */
+<     case 0xE0: case 0xE1: case 0xE2: { int8_t d = fetch8(c); c->r[CX]--; int t = c->r[CX] != 0; if (op == 0xE0) t = t && !c->zf; else if (op == 0xE1) t = t && c->zf; if (t) { c->ip += d; if (c->cyc_model) c->cycles += 10; } break; }
+---
+>     case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF: decode_modrm(c); if (c->cyc_model) c->cycles += 3; if (c->et) do_int(c, 7); break;   /* ESC: ignored (no 80C187 attached) unless ET is set, then Type 7 */
+>     case 0xE0: case 0xE1: case 0xE2: { int8_t d = fetch8(c); c->r[CX]--; int t = c->r[CX] != 0; if (op == 0xE0) t = t && !c->zf; else if (op == 0xE1) t = t && c->zf; if (t) { c->ip += d; if (c->cyc_model) c->cycles += 10; } else if (c->cyc_model && op != 0xE2) c->cycles -= 1; break; }   /* LOOPZ/LOOPNZ not taken 5, LOOP not taken 6 */
+395c440,441
+<         case 0: case 1: alu(c, 4, v, w ? fetch16(c) : fetch8(c), w); break;
+---
+>         case 0: if (c->cyc_model) c->cycles += 1; alu(c, 4, v, w ? fetch16(c) : fetch8(c), w); break;   /* TEST imm: 4/10 */
+>         case 1: if (w) fetch16(c); else fetch8(c); return (void)bad(c, op);   /* F6/F7 reg field 1 is undefined (TEST is reg 0 only); imm fetched so INT 6 returns past it */
+416,419c462,465
+<         case 3: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); uint16_t o = mrd(c, a, 1), s = mrd(c, a + 2, 1); push16(c, c->sr[CS]); push16(c, c->ip); c->ip = o; c->sr[CS] = s; if (c->cyc_model) c->cycles += 28; break; }
+<         case 4: c->ip = rm_rd(c, 1); if (c->cyc_model) c->cycles += 8; break;
+<         case 5: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); c->ip = mrd(c, a, 1); c->sr[CS] = mrd(c, a + 2, 1); break; }
+<         case 6: { uint16_t v = rm_rd(c, 1); push16(c, v); break; }
+---
+>         case 3: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); uint16_t o = mrd(c, a, 1), s = mrd(c, a + 2, 1); push16(c, c->sr[CS]); push16(c, c->ip); c->ip = o; c->sr[CS] = s; if (c->cyc_model) c->cycles += 29; break; }   /* CALL far ind mem 38 */
+>         case 4: c->ip = rm_rd(c, 1); if (c->cyc_model) c->cycles += c->mod == 3 ? 23 : 17; break;   /* JMP ind: Table D-2 single figure 26 both forms */
+>         case 5: { if (c->mod == 3) return (void)bad(c, op); uint32_t a = lin(c->ea_seg, c->ea_off); c->ip = mrd(c, a, 1); c->sr[CS] = mrd(c, a + 2, 1); if (c->cyc_model) c->cycles += 8; break; }   /* JMP far ind mem 17 */
+>         case 6: { uint16_t v = rm_rd(c, 1); push16(c, v); if (c->cyc_model) c->cycles += 7; break; }   /* PUSH r/m 16 (mem), 10 (reg) */
+427c473
+< /* run until cycle budget exhausted; returns ST_* */
+---
+> /* run until cycle budget exhausted; returns ST_* (also stored in c->status) */
+429,431c475,479
+<     uint64_t end = c->cycles + budget; int first = 1;
+<     c->run_end = end;
+<     c->stop = 0; c->status = ST_OK;
+---
+>     if (!c) return ST_BADOP;
+>     uint64_t end = c->cycles + budget;
+>     c->status = ST_OK;
+>     if (c->stop) { c->stop = 0; c->status = ST_STOP; return ST_STOP; }   /* a stop requested before the run is honoured, not lost */
+>     int skip_bp = c->bp_skip; c->bp_skip = 0;   /* resume after ST_BP: the first instruction is the breakpointed one, run it once */
+433,435c481,486
+<         if (c->nmi_pending) { c->halted = 0; c->nmi_pending = 0; c->inh = 0; do_int(c, 2); }
+<         else if (c->irq_pending && c->ifl && !c->inh) { c->halted = 0; c->irq_pending = 0; do_int(c, c->irq_vec); }
+<         if (c->halted) { c->cycles = end; return ST_HLT; }   /* a pending request with IF=0 cannot wake it (NMI can) */
+---
+>         if (c->nmi_pending) { if (c->waiting) c->ip = c->pstart; c->halted = 0; c->waiting = 0; c->nmi_pending = 0; c->inh = 0; do_int(c, 2); }
+>         else if (c->irq_pending && c->ifl && !c->inh) { if (c->waiting) c->ip = c->pstart; c->halted = 0; c->waiting = 0; c->irq_pending = 0; do_int(c, c->irq_vec); }
+>         if (c->halted) {
+>             if (c->waiting && c->test_pin) { c->halted = 0; c->waiting = 0; }   /* WAIT suspended on TEST: TEST went active, resume */
+>             else { c->cycles = end; c->status = ST_HLT; return ST_HLT; }   /* a pending request with IF=0 cannot wake it (NMI can). NOTE: the HALT budget burn is load-bearing for the SV25 host (machine.py _run terminates on cycles reaching end); see rank 15. */
+>         }
+437,439c488,490
+<         if (!first && c->bp[p]) return ST_BP;
+<         first = 0;
+<         uint16_t ip0 = c->ip, cs0 = c->sr[CS]; int tf0 = c->tf;
+---
+>         if (c->bp[p] && !skip_bp) { c->bp_skip = 1; c->status = ST_BP; return ST_BP; }
+>         skip_bp = 0;
+>         int tf0 = c->tf;
+441c492
+<         uint64_t cb = c->cycles;
+---
+>         c->tf_supp = 0;                                      /* single-step suppress covers exactly this instruction; segment loads / WAIT set it */
+443,450c494,495
+<         if (c->cscale != 1.0 && c->cyc_model) { double d = (double)(c->cycles - cb) * c->cscale + c->cfrac; uint64_t di = (uint64_t)d; c->cfrac = d - (double)di; c->cycles = cb + di; }
+<         if (c->status == ST_BADOP) {
+<             c->ip = ip0; c->sr[CS] = cs0;
+<             if (!c->ud_trap) return ST_BADOP;
+<             c->status = ST_OK; do_int(c, 6); continue;      /* 80C186EB: type 6, the pushed IP is the faulting instruction's (manual 5.1 exceptions) */
+<         }
+<         if (tf0 && c->tf && !c->halted) do_int(c, 1);        /* single-step trap after an instruction that started with TF=1 (vectoring clears TF) */
+<         if (c->stop) return ST_STOP;
+---
+>         if (tf0 && c->tf && !c->halted && !c->tf_supp) do_int(c, 1);        /* single-step trap after an instruction that started with TF=1 (vectoring clears TF); not after prefix / segment-register / WAIT */
+>         if (c->stop) { c->stop = 0; c->status = ST_STOP; return ST_STOP; }
+451a497
+>     c->status = ST_OK;
+28c28
+<     uint32_t mmr_n[2][0x60]; uint16_t mmr_pc[2][0x60]; uint16_t mmr_val[0x60]; uint32_t ext_n[2][64]; uint32_t ff_n[2][256]; uint16_t rsv_a, rsv_pc; int32_t brcr; uint16_t io_rep; int xc_left, xc_new;
+---
+>     uint32_t mmr_n[2][0x60]; uint16_t mmr_pc[2][0x60]; uint16_t mmr_val[0x60]; uint32_t ext_n[2][64]; uint16_t rsv_a, rsv_pc; int32_t brcr; uint16_t io_rep; int xc_left, xc_new;
+37c37
+<     int idle, bio, stop, status, xrdy, rrdy, xint_mode, xint_first, cyc_model, words, rep_cont, legacy; uint64_t idle_cycles, timer_exp;
+---
+>     int idle, bio, stop, status, xrdy, rrdy, xint_mode, xint_first, cyc_model, words, rep_cont, legacy; uint64_t idle_cycles;
+55,62d54
+< /* mutable copy of the manual cycle table; CYC_EXP (bit mask) lowers classes for experiments: 1 = RPT forms cost 1, 2 = one-shot BLDD/BLPD/TBLR/TBLW cost 2 (0xA5xx-0xA9xx) */
+< static uint8_t cycm[65536]; static int cycm_init;
+< static void cycm_setup(void) {
+<     if (cycm_init) return; cycm_init = 1; memcpy(cycm, cyc_tab, sizeof cycm);
+<     const char *e = getenv("CYC_EXP"); int m = e ? atoi(e) : 0;
+<     if (m & 1) { for (int w = 0x0B00; w <= 0x0BFF; w++) cycm[w] = 1; for (int w = 0xBB00; w <= 0xBBFF; w++) cycm[w] = 1; cycm[0xBEC4] = 1; }
+<     if (m & 2) { for (int w = 0xA500; w <= 0xA9FF; w++) if (cycm[w] == 3) cycm[w] = 2; }
+< }
+64d55
+<     cycm_setup();
+122c113
+<     case S_PC: c->pc = v; break; case S_ACC: c->acc = v; break; case S_ACCB: c->accb = v; break; case S_DRR: c->drr = v; break;
+---
+>     case S_PC: c->pc = v; break; case S_ACC: c->acc = v; break; case S_DRR: c->drr = v; break;
+160c151
+<     case 0x0C: return c->treg0; case 0x0D: return c->treg1 & 0x1F; case 0x0E: return c->treg2 & 0xF; case 0x0F: return c->dbmr;
+---
+>     case 0x0C: return c->treg0; case 0x0D: return c->treg1; case 0x0E: return c->treg2; case 0x0F: return c->dbmr;
+163c154
+<     case 0x20: c->rrdy = 0; c->rsrfull = 0; return c->drr; case 0x21: return c->dxr;
+---
+>     case 0x20: c->rrdy = 0; return c->drr; case 0x21: return c->dxr;
+181c172
+<     case 0x0C: c->treg0 = d; return; case 0x0D: c->treg1 = d & 0x1F; return; case 0x0E: c->treg2 = d & 0xF; return; case 0x0F: c->dbmr = d; return;
+---
+>     case 0x0C: c->treg0 = d; return; case 0x0D: c->treg1 = d; return; case 0x0E: c->treg2 = d; return; case 0x0F: c->dbmr = d; return;
+185c176
+<         c->spc = d & 0xC0FE;
+---
+>         uint16_t old = c->spc; c->spc = d & 0xC0FE;
+187c178
+<         if (!(d & 0x40)) { if (!c->xrdy) c->ifr |= (1 << 5); c->xsrempty = 0; c->xrdy = 1; }   /* XRST=0: XSREMPTY=0, XRDY=1, XINT if XRDY was 0 */
+---
+>         if (!(d & 0x40)) { if (!c->xrdy && (old & 0x40)) c->ifr |= (1 << 5); c->xsrempty = 0; c->xrdy = 1; }   /* XRST=0: XSREMPTY=0, XRDY=1, XINT if XRDY was 0 */
+201c192
+< static inline int dm_internal(C5x *c, uint16_t a) { return a < 0x80 || (a >= 0x100 && a < 0x500 && !(c->cnf && a < 0x300)) || (c->ovly && a >= 0x800 && a < 0xC00); }   /* B0 leaves data space when CNF=1; SARAM is in data space only when OVLY=1 (SPRU056D 8.2, courier-emu data_region) */
+---
+> static inline int dm_internal(uint16_t a) { return a < 0x80 || (a >= 0x100 && a < 0x500) || (a >= 0x800 && a < 0xC00); }
+204,206c195,197
+< static inline uint16_t dm_rd(C5x *c, uint16_t a) { if (a >= 0x60 && !dm_internal(c, a)) { c->ext_n[0][a >> 10]++; if (a >= 0xFF00) c->ff_n[0][a & 255]++; if (a >= 0x500 && a < 0x800) { c->rsv_a = a; c->rsv_pc = c->cur_pc; } } return a < 0x60 ? mmr_rd(c, a) : dm_internal(c, a) ? c->dmem[a] : dm_hostwin(a) ? io_read(c, a) : c->pmem[a]; }
+< static inline void dm_wr(C5x *c, uint16_t a, uint16_t d) { mmr_bus(c, a); if (a >= 0x60 && !dm_internal(c, a)) c->ext_n[1][a >> 10]++; if (a >= 0xFF00) c->ff_n[1][a & 255]++; if ((int32_t)a == c->watch_a) c->watch_hits[c->cur_pc]++; if (a < 0x60) mmr_wr(c, a, d); else if (dm_internal(c, a)) c->dmem[a] = d; else if (dm_hostwin(a)) io_write(c, a, d); else c->pmem[a] = d; }
+< static inline void dmov_wr(C5x *c, uint16_t a, uint16_t d) { if (dm_internal(c, a) && a >= 0x60 && dm_internal(c, a + 1)) dm_wr(c, a + 1, d); }   /* both the source and the destination (a+1) must be on-chip RAM (07-NEW-4) */   /* data move only within on-chip RAM (DMOV/LTD/MACD/MADD) */
+---
+> static inline uint16_t dm_rd(C5x *c, uint16_t a) { mmr_bus(c, a); if (a >= 0x60 && !dm_internal(a)) { c->ext_n[0][a >> 10]++; if (a >= 0x500 && a < 0x800) { c->rsv_a = a; c->rsv_pc = c->cur_pc; } } return a < 0x60 ? mmr_rd(c, a) : dm_internal(a) ? c->dmem[a] : dm_hostwin(a) ? io_read(c, a) : c->pmem[a]; }
+> static inline void dm_wr(C5x *c, uint16_t a, uint16_t d) { mmr_bus(c, a); if (a >= 0x60 && !dm_internal(a)) c->ext_n[1][a >> 10]++; if ((int32_t)a == c->watch_a) c->watch_hits[c->cur_pc]++; if (a < 0x60) mmr_wr(c, a, d); else if (dm_internal(a)) c->dmem[a] = d; else if (dm_hostwin(a)) io_write(c, a, d); else c->pmem[a] = d; }
+> static inline void dmov_wr(C5x *c, uint16_t a, uint16_t d) { if (dm_internal(a) && a >= 0x60 && dm_internal(a + 1)) dm_wr(c, a + 1, d); }   /* both the source and the destination (a+1) must be on-chip RAM (07-NEW-4) */   /* data move only within on-chip RAM (DMOV/LTD/MACD/MADD) */
+238,244c229
+< static inline void set_t0(C5x *c, uint16_t d) { c->treg0 = d; if (!c->trm) { c->treg1 = d & 0x1F; c->treg2 = d & 0xF; } }
+< static int circ_end(C5x *c, int ar, uint16_t v, uint16_t *start) {
+<     int cenb1 = (c->cbcr >> 3) & 1, car1 = c->cbcr & 7, cenb2 = (c->cbcr >> 7) & 1, car2 = (c->cbcr >> 4) & 7;
+<     if (cenb1 && ar == car1 && v == c->cber1) { *start = c->cbsr1; return 1; }
+<     if (!(cenb1 && ar == car1) && cenb2 && ar == car2 && v == c->cber2) { *start = c->cbsr2; return 1; }
+<     return 0;
+< }
+---
+> static inline void set_t0(C5x *c, uint16_t d) { c->treg0 = d; if (!c->trm) { c->treg1 = d; c->treg2 = d; } }
+265c250
+<     case 0x8: { uint16_t st; c->ar[arp] = circ_end(c, arp, a, &st) ? st : bitrev16(bitrev16(a) - bitrev16(c->indx)); if (arp == 0) c->ar0_dirty = 1; break; }
+---
+>     case 0x8: c->ar[arp] = bitrev16(bitrev16(a) - bitrev16(c->indx)); if (arp == 0) c->ar0_dirty = 1; break;
+268c253
+<     case 0xE: { uint16_t st; c->ar[arp] = circ_end(c, arp, a, &st) ? st : bitrev16(bitrev16(a) + bitrev16(c->indx)); if (arp == 0) c->ar0_dirty = 1; break; }
+---
+>     case 0xE: c->ar[arp] = bitrev16(bitrev16(a) + bitrev16(c->indx)); if (arp == 0) c->ar0_dirty = 1; break;
+299c284
+<     do { exec1(c); if (c->cyc_model) c->cycles += cycm[c->op] - 1; if (c->ar0_dirty) { if (!c->ndx) c->indx = c->arcr = c->ar[0]; c->ar0_dirty = 0; } } while ((uint16_t)(c->pc - start) < 2);   /* NDX mirror applies between the slot words too (5.2.1) */
+---
+>     do { exec1(c); if (c->cyc_model) c->cycles += cyc_tab[c->op] - 1; if (c->ar0_dirty) { if (!c->ndx) c->indx = c->arcr = c->ar[0]; c->ar0_dirty = 0; } } while ((uint16_t)(c->pc - start) < 2);   /* NDX mirror applies between the slot words too (5.2.1) */
+410c395
+<     case 0x77: a = ea(c); if (dm_internal(c, a) && a >= 0x60 && dm_internal(c, a + 1)) dm_wr(c, a + 1, dm_rd(c, a)); break;   /* audit #16: DMOV only within on-chip RAM */                                    /* DMOV */
+---
+>     case 0x77: a = ea(c); if (dm_internal(a) && a >= 0x60 && dm_internal(a + 1)) dm_wr(c, a + 1, dm_rd(c, a)); break;   /* audit #16: DMOV only within on-chip RAM */                                    /* DMOV */
+478c463
+<         if (!cond(c)) { n = ((op >> 12) & 1) + 1; c->pc += n; }   /* XC n counts instruction WORDS (manual: n=2 = one 2-word or two 1-word instructions); XC does not touch OV (N-12) */ else { c->xc_left = 2;   /* XC and the two words following it are uninterruptible, whatever n (6.3 XC) */ c->xc_new = 1; } break;   /* XC and the 1-2 words after it are uninterruptible (6.3 XC) */
+---
+>         if (!cond(c)) { n = ((op >> 12) & 1) + 1; c->pc += n; }   /* XC n counts instruction WORDS (manual: n=2 = one 2-word or two 1-word instructions); XC does not touch OV (N-12) */ else { c->xc_left = ((op >> 12) & 1) + 1; c->xc_new = 1; } break;   /* XC and the 1-2 words after it are uninterruptible (6.3 XC) */
+517c502
+<     case 0x19: { uint64_t r = (uint64_t)c->acc - (uint64_t)c->accb - (uint64_t)(!c->c); c->c = !(r >> 32 & 1); c->acc = (uint32_t)r; } break;   /* SBBB affects C only: no OV, no saturation (SPRU056D p.6-233) */
+---
+>     case 0x19: c->acc = do_sub(c, c->acc, c->accb, !c->c, 0); break;
+600c585
+<     if (--c->psc < 0) { c->psc = c->tcr_tddr; if (c->tim == 0) { c->tim = c->prd; c->ifr |= 1 << 3; c->timer_exp++; } else c->tim--; }
+---
+>     if (--c->psc < 0) { c->psc = c->tcr_tddr; if (c->tim == 0) { c->tim = c->prd; c->ifr |= 1 << 3; } else c->tim--; }
+614a600,603
+>         if (c->braf && (uint16_t)(c->pc - 1) == c->paer) {      /* the last loop word has just executed (PC is already past it) */
+>             if (c->brcr > 0) { c->pc = c->pasr; c->brcr--; }       /* BRCR > 0: decrement and restart; BRCR = 0: leave the loop with BRCR still 0 and BRAF cleared (4.7) */
+>             else c->braf = 0;
+>         }
+617c606
+<         uint16_t ppc = c->pc; c->words = 0; int sp0 = c->sp;
+---
+>         uint16_t ppc = c->pc; c->words = 0;
+620c609
+<             int cy = c->rep_cont ? ((c->op >> 8 == 0xAF) ? 2 : (c->op >> 8 == 0x0C) ? 3 : 1) : cycm[c->op];   /* repeated IN: 2 cycles per access (6.3: 2n + n*io), OUT: 3 (3n + n*io) */
+---
+>             int cy = c->rep_cont ? ((c->op >> 8 == 0xAF || c->op >> 8 == 0x0C) ? 2 : 1) : cyc_tab[c->op];   /* repeated IN/OUT: 2 cycles per access (6.3: 2n + n*io) */
+623d611
+<             if (h >= 0xEC && h <= 0xEF) seq = c->sp == sp0;                                 /* RETC/RET: taken = the return address was popped (TOS may equal the fall-through address) */
+633,636d620
+<         if (c->braf && (uint16_t)(c->pc - 1) == c->paer) {      /* the last loop word has just executed (PC is already past it); done before the interrupt check so an ISR sees BRAF and the return address after the loop-end test (4.7) */
+<             if (c->brcr > 0) { c->pc = c->pasr; c->brcr--; }       /* BRCR > 0: decrement and restart; BRCR = 0: leave the loop with BRCR still 0 and BRAF cleared (4.7) */
+<             else c->braf = 0;
+<         }
+641c625
+<         if (c->int_inh) c->int_inh = 0; else if (xc_hold) { } else if (c->rptc <= 0 && !c->rep_cont) check_int(c);      /* a single-instruction RPT repeat is not interruptible on the real C5x */
+---
+>         if (c->int_inh) c->int_inh = 0; else if (xc_hold) { } else if (c->rptc <= 0) check_int(c);      /* a single-instruction RPT repeat is not interruptible on the real C5x */
+650,654c634,636
+<         if (c->rrdy || c->rsrfull) c->rsrfull = 1;          /* previous word not read before the next one arrived: overrun; the receiver halts until DRR is read, the new word is lost (9.7) */
+<         else {
+<             c->drr = (c->spc & 0x02) ? c->dxr : (uint16_t)rx;   /* DLB: DX looped back to DR */
+<             c->rrdy = 1; c->ifr |= (1 << 4);                    /* RINT */
+<         }
+---
+>         if (c->rrdy) c->rsrfull = 1;                        /* previous word not read before the next one arrived: overrun */
+>         c->drr = (c->spc & 0x02) ? c->dxr : (uint16_t)rx;   /* DLB: DX looped back to DR */
+>         c->rrdy = 1; c->ifr |= (1 << 4);                    /* RINT */
+667d648
+< uint64_t c5x_timer_expiries(C5x *c) { return c->timer_exp; }   /* TIM reached 0 (TOUT pulses): the board's host heartbeat (INT0, 2401 Hz measured) follows these */
+689d669
+< uint32_t c5x_ff_count(C5x *c, int wr, int i) { return c->ff_n[wr][i & 255]; }
+3,6c3
+< _HERE = os.path.dirname(os.path.abspath(__file__))
+< SIB = os.environ.get("DSP_CORE") == "sib"        # experiment: run the courier-emu C5x core (dsp/sib, built by sib/build.sh) instead of c5x_core.c
+< if SIB: os.environ.setdefault("SIB_ROM", os.path.join(_HERE, "..", "fw", "c5x-onchip-rom-8k.bin"))
+< _lib = C.CDLL(os.path.join(_HERE, "libc5x_sib.so" if SIB else "libc5x.so"))
+---
+> _lib = C.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), "libc5x.so"))
+35d31
+< if hasattr(_lib, 'c5x_timer_expiries'): _lib.c5x_timer_expiries.argtypes = [C.c_void_p]; _lib.c5x_timer_expiries.restype = C.c_uint64
+44c40
+< _lib.c5x_mmr_count.restype = C.c_uint32; _lib.c5x_mmr_count.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_mmr_pc.restype = C.c_uint16; _lib.c5x_mmr_pc.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_mmr_val.restype = C.c_uint16; _lib.c5x_mmr_val.argtypes = [C.c_void_p, C.c_int]; _lib.c5x_ff_count.restype = C.c_uint32; _lib.c5x_ff_count.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_ext_count.restype = C.c_uint32; _lib.c5x_ext_count.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_rsv.restype = C.c_uint16; _lib.c5x_rsv.argtypes = [C.c_void_p, C.c_int]; _lib.c5x_mmr_clear.argtypes = [C.c_void_p]
+---
+> _lib.c5x_mmr_count.restype = C.c_uint32; _lib.c5x_mmr_count.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_mmr_pc.restype = C.c_uint16; _lib.c5x_mmr_pc.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_mmr_val.restype = C.c_uint16; _lib.c5x_mmr_val.argtypes = [C.c_void_p, C.c_int]; _lib.c5x_ext_count.restype = C.c_uint32; _lib.c5x_ext_count.argtypes = [C.c_void_p, C.c_int, C.c_int]; _lib.c5x_rsv.restype = C.c_uint16; _lib.c5x_rsv.argtypes = [C.c_void_p, C.c_int]; _lib.c5x_mmr_clear.argtypes = [C.c_void_p]
+53,64d48
+< class _Mem:
+<     """index-style view of a core whose memory is not one flat array (sib core)."""
+<     def __init__(self, get, set_, h): self._g, self._s, self._h = get, set_, h
+<     def __getitem__(self, a): return self._g(self._h, a & 0xFFFF)
+<     def __setitem__(self, a, v): self._s(self._h, a & 0xFFFF, v & 0xFFFF)
+< 
+< if SIB:
+<     _lib.c5x_dm_get.restype = C.c_uint16; _lib.c5x_dm_get.argtypes = [C.c_void_p, C.c_uint16]
+<     _lib.c5x_dm_set.argtypes = [C.c_void_p, C.c_uint16, C.c_uint16]
+<     _lib.c5x_pm_get.restype = C.c_uint16; _lib.c5x_pm_get.argtypes = [C.c_void_p, C.c_uint16]
+<     _lib.c5x_pm_load.argtypes = [C.c_void_p, C.c_uint16, C.c_void_p, C.c_uint32]
+< 
+69d52
+<         if SIB: self.dm = self.dmem = _Mem(_lib.c5x_dm_get, _lib.c5x_dm_set, self.h)
+73,74d55
+<         if SIB:
+<             n = len(blob) // 2; arr = (C.c_uint16 * n).from_buffer_copy(blob[: n * 2]); _lib.c5x_pm_load(self.h, addr, arr, n); return
+96d76
+<     def timer_expiries(self): return _lib.c5x_timer_expiries(self.h) if hasattr(_lib, 'c5x_timer_expiries') else 0
+115d94
+<     def ff_count(self, wr, i): return _lib.c5x_ff_count(self.h, wr, i)
+3c3
+< _l = C.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.environ.get("I186_LIB", "libi186.so")))   # I186_LIB=libi186_fixed.so selects the alternative core
+---
+> _l = C.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), "libi186.so"))
+25c25
+< _l.i186_set_cycle_model.argtypes = [C.c_void_p, C.c_int]; _l.i186_set_cycle_scale.argtypes = [C.c_void_p, C.c_double]; _l.i186_set_ud_trap.argtypes = [C.c_void_p, C.c_int]
+---
+> _l.i186_set_cycle_model.argtypes = [C.c_void_p, C.c_int]
+48d47
+<     def ud_trap(self, m): _l.i186_set_ud_trap(self.h, m)
+50d48
+<     def cycle_scale(self, f): _l.i186_set_cycle_scale(self.h, float(f))
+161,163d160
+<             # same time policy as Link.run: one shared absolute clock; a worker that overshot its slice gets a shorter budget (see sys/FULL_SYSTEM.md, "Time policy")
+<             if not hasattr(self, '_gt'): self._gt = 0; self._off = {'a': 0, 'b': 0}
+<             self._gt += self.slice
+166c163
+<                 self._c[k].send({'op': 'run', 'slice': max(0, self._gt - (self.cyc.get(k, 0) - self._off[k])), 'rx': q['rx'], 'send': q['send'], 'ring_on': q['ring_on'], 'gen': self._gen_b if k == 'b' else None})
+---
+>                 self._c[k].send({'op': 'run', 'slice': self.slice, 'rx': q['rx'], 'send': q['send'], 'ring_on': q['ring_on'], 'gen': self._gen_b if k == 'b' else None})
