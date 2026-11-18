@@ -580,7 +580,6 @@ Machine *machine_new(const Config *cfg)
     m->sample_cyc = (int)(m->cpu_hz / 7200);
     m->dsp_cps = (int)m->dsp_cps_7200;
     m->rate = 7200;
-    m->iface403 = strcmp(cfg->prof->iface, "403") == 0;
     /* Toggles: config values already carry env fallbacks (config.c). */
     m->p51div = cfg->p51div; m->hb_timer = cfg->hb_timer;
     m->dsp_clk_fixed = cfg->dsp_clk_fixed; m->port_rb = cfg->port_rb;
@@ -601,7 +600,7 @@ Machine *machine_new(const Config *cfg)
     m->heartbeat = 1;
     m->hb_ticks = m->hb_timer ? 1 : 3;
     m->dte_baud = 115200;
-    m->dte_gap = (int)(m->cpu_hz / 500);
+    m->dte_gap = 0;   /* no idle gap between characters: serial at dte_baud */
     m->hw_idx = cfg->hw_idx >= 0 ? cfg->hw_idx : cfg->prof->hw_idx;
     m->voice_data_button = cfg->voice_data_button;
     m->logging = 1;
@@ -705,6 +704,16 @@ void machine_free(Machine *m)
 {
     if (!m)
         return;
+    if (getenv("HITS") && m->dsp) {
+        if (getenv("HITSFILE")) { char fn[512]; snprintf(fn, sizeof fn, "%s.%c", getenv("HITSFILE"), m->tag); FILE *hf = fopen(fn, "w"); if (hf) { for (unsigned a = 0; a < 65536; a++) { unsigned h = c5x_pc_hits(m->dsp, a); if (h) fprintf(hf, "%04X %u\n", a, h); } fclose(hf); } }
+        if (getenv("DMWFILE")) { char fn[512]; snprintf(fn, sizeof fn, "%s.%c", getenv("DMWFILE"), m->tag); FILE *wf = fopen(fn, "w"); if (wf) { fprintf(wf, "ISR %u\n", c5x_pc_hits(m->dsp, 0x8189)); for (unsigned a = 0; a < 65536; a++) { unsigned n = c5x_dm_writes(m->dsp, a); if (n) fprintf(wf, "%04X %u\n", a, n); } fclose(wf); } }
+        fprintf(stderr, "HITS %c regions:", m->tag);
+        for (unsigned b = 0x8000; b < 0x10000; b += 0x400) { unsigned long t = 0; for (unsigned a = b; a < b + 0x400; a++) t += c5x_pc_hits(m->dsp, a); if (t) fprintf(stderr, " %04X=%lu", b, t); }
+        fprintf(stderr, "\nHITS %c C88B=%u C9B0=%u C98E=%u C904=%u  D8C1=%u D976=%u\n", m->tag, c5x_pc_hits(m->dsp,0xC88B), c5x_pc_hits(m->dsp,0xC9B0), c5x_pc_hits(m->dsp,0xC98E), c5x_pc_hits(m->dsp,0xC904), c5x_pc_hits(m->dsp,0xD8C1), c5x_pc_hits(m->dsp,0xD976));
+        unsigned long hi = 0, ov8 = 0; for (unsigned a = 0xC000; a < 0xCD4B; a++) hi += c5x_pc_hits(m->dsp, a); for (unsigned a = 0xDC00; a < 0xF8B6; a++) ov8 += c5x_pc_hits(m->dsp, a);
+        fprintf(stderr, "HITS %c total instructions executed in C000..CD4A (ov7 range): %lu ; in DC00..F8B5 (ov8): %lu\n", m->tag, hi, ov8);
+    }
+    if (getenv("DUMPMEM") && m->dsp) { char fn[512]; FILE *f; snprintf(fn, sizeof fn, "%s.%c.pm", getenv("DUMPMEM"), m->tag); if ((f = fopen(fn, "wb"))) { fwrite(c5x_pmem(m->dsp), 2, 65536, f); fclose(f); } snprintf(fn, sizeof fn, "%s.%c.dm", getenv("DUMPMEM"), m->tag); if ((f = fopen(fn, "wb"))) { fwrite(c5x_dmem(m->dsp), 2, 65536, f); fclose(f); } }
     free(m->log); free(m->pcblog); free(m->dte_out); free(m->txq);
     free(m->dsp_bursts);
     free(m->edges); free(m->rxbuf); free(m->rx_log); free(m->tx_all);
@@ -770,23 +779,9 @@ void machine_start_dsp(Machine *m)
     for (size_t i = 0; i < m->dsp_bursts_n; i++)
         memcpy(flat + i * 8, m->dsp_bursts + i * 8, 8);
     m->dsp = c5x_new();
-    c5x_set_diag(m->dsp, 0);   /* replay needs diagnostics off */
+    c5x_set_diag(m->dsp, getenv("HITS") ? 1 : 0);   /* replay needs diagnostics off */
     dsp_load_pm(m->dsp, 0x8000, flat + 16, take);
     free(flat);
-    m->sender_mode = 0;
-    memset(m->sender_pcs, 0, sizeof m->sender_pcs);
-    if (m->prof->sender_scan) {
-        /* The message sender's OUT 005E/005F instructions move between
-         * DSP builds: find them in the loaded image. */
-        m->sender_mode = 1;
-        uint16_t *pm = c5x_pmem(m->dsp);
-        for (uint32_t a = 0x8000; a < 0xFFFE; a++) {
-            if ((pm[a] >> 8) == 0x0C && (pm[a + 1] == 0x5E || pm[a + 1] == 0x5F)) {
-                m->sender_pcs[(a + 1) & 0xFFFF] = 1;
-                m->sender_pcs[(a + 2) & 0xFFFF] = 1;
-            }
-        }
-    }
     if (m->dsp_rom[0]) {
         char rom_path[CFG_MAX_PATH];
         if (strcmp(m->dsp_rom, "1") == 0)
@@ -800,17 +795,8 @@ void machine_start_dsp(Machine *m)
             free(rom);
         }
     }
-    const Profile *pre = m->prof;
-    uint16_t *dm = c5x_dmem(m->dsp);
-    for (int i = 0; i < 11; i++) {
+    for (int i = 0; i < 11; i++)
         c5x_set_ivec_ind(m->dsp, i, (uint16_t)(0x60 + i));
-        if (pre->isr_presets_all >= 0)
-            dm[0x60 + i] = (uint16_t)pre->isr_presets_all;
-    }
-    if (pre->isr_presets_all >= 0) {
-        for (int i = 0; i < pre->isr_extra_n; i++)
-            dm[pre->isr_extra_addr[i]] = (uint16_t)pre->isr_extra_val[i];
-    }
     if (m->tintslot >= 0)
         c5x_set_ivec_ind(m->dsp, 3, (uint16_t)m->tintslot);
     m->dxr_h = c5x_dxr_head(m->dsp);
@@ -1163,17 +1149,14 @@ static uint32_t machine_iord(void *ctx, uint16_t p, int w)
     }
     if (p == 0x00) return m->ports[0] & ~0x08u;
     if (p == 0x18 && !m->dsp) return 0x03;
-    if (m->iface403 && p == 0x1C && m->dsp)
-        return 0xFCu | (m->h2d_pending ? 0 : 1) | ((m->d2h_valid ? 1 : 0) << 1);
-    if (m->iface403 && p == 0x1E && m->dsp)
-        return m->ovl_status ? (0xF8u | (uint32_t)m->ovl_status) : 0xFF;
     if (p == 0x1C || p == 0x1E)
         return p == 0x1C ? (uint32_t)(m->evt & 0xFF)
                          : (uint32_t)(m->dsp ? m->ovl_status : 0);
     if (p >= 0x40 && p <= 0x5E && (p % 2) == 0 && m->dsp) {
         int idx = (p - 0x40) / 4, hi = ((p - 0x40) / 2) % 2;
         uint16_t wv = m->d2h[idx]; /* d2h[0] = word 0x58 */
-        if (p == 0x58 && !m->iface403) m->d2h_valid = 0;
+        m->d2h_unread[idx] = 0;
+        if (p == 0x58) m->d2h_valid = 0;
         return hi ? (wv >> 8) & 0xFF : wv & 0xFF;
     }
     if ((p == 0x18 || p == 0x1A) && m->dsp)
@@ -1191,6 +1174,21 @@ static uint32_t machine_iord(void *ctx, uint16_t p, int w)
     }
     if (p == 0x10 || p == 0x12 || p == 0x14) return m->port_in[p];
     return m->ports[p];
+}
+
+static void machine_iowr(void *ctx, uint16_t p, int w, uint32_t v);
+
+/* Test hook (config inject_cmd): post a host->DSP command the way the 80186 does -
+ * the command and argument words, then the write that raises message pending. */
+void machine_host_cmd(Machine *m, int cmd, int arg)
+{
+    if (!m->dsp) return;
+    /* The 80186 writes the command word to ports 0x58/0x5A, the argument word to
+     * 0x5C/0x5E; the write to 0x5E raises message pending. */
+    machine_iowr(m, 0x58, 1, (uint32_t)(cmd & 0xFF));
+    machine_iowr(m, 0x5A, 1, (uint32_t)((cmd >> 8) & 0xFF));
+    machine_iowr(m, 0x5C, 1, (uint32_t)(arg & 0xFF));
+    machine_iowr(m, 0x5E, 1, (uint32_t)((arg >> 8) & 0xFF));
 }
 
 static void machine_iowr(void *ctx, uint16_t p, int w, uint32_t v)
@@ -1228,9 +1226,7 @@ static void machine_iowr(void *ctx, uint16_t p, int w, uint32_t v)
     }
     if (p == 0x18 && (v & 0xFF) == 4 && !m->dsp)
         machine_start_dsp(m);
-    if (m->iface403 && p == 0x1C && m->dsp) {
-        if (v & 2) m->d2h_valid = 0;
-    } else if (p == 0x1C && m->dsp) {
+    if (p == 0x1C && m->dsp) {
         m->evt &= (uint8_t)~(v & 0xFF);
         m->evt_seen &= m->evt;
     }
@@ -1301,7 +1297,12 @@ static void machine_dsp_wr(void *ctx, uint16_t p, uint16_t v)
         m->flagsD &= (uint16_t)~v;
         m->flags56 |= v;
     }
-    if (q >= 0x58 && q <= 0x5D && m->bankwr) m->d2h[q - 0x58] = v & 0xFFFF;
+    if (q >= 0x58 && q <= 0x5D && m->bankwr) {
+        int i = q - 0x58;
+        if (m->d2h_unread[i]) m->d2h_overwrites++;   /* counted, not gated */
+        m->d2h[i] = v & 0xFFFF;
+        m->d2h_unread[i] = 1;
+    }
     if (q == 0x60) {
         m->data_word = v & 0xFFFF; m->data_full = 1; m->data_words_sent++;
     }
@@ -1316,7 +1317,7 @@ static void machine_dsp_wr(void *ctx, uint16_t p, uint16_t v)
     if (q == 0x57 && ((v >> 8) & 7)) m->ovl_status = (v >> 8) & 7;
     if (q == 0x57 && (v & 1)) {
         m->h2d_pending = 0;
-        if (!m->iface403) { m->evt |= 1; m->int0_req = 1; }
+        m->evt |= 1; m->int0_req = 1;
         int cmd = m->h2d[0x5E - 0x58] & 0xFF, arg = m->h2d[0x5F - 0x58] & 0xFF;
         if (cmd == 0x02) {
             m->ovl_addr = m->h2d[0x5F - 0x58] & 0xFFFF;
@@ -1336,21 +1337,19 @@ static void machine_dsp_wr(void *ctx, uint16_t p, uint16_t v)
         }
     }
     if (q >= 0x58 && q <= 0x5F) {
-        uint16_t pc = (uint16_t)c5x_get(m->dsp, GLUE_C5X_PC);
-        int sender = m->sender_mode ? m->sender_pcs[pc]
-                                    : (pc >= 0x83D6 && pc <= 0x8420);
-        if (sender) {
+        {
             m->d2h[q - 0x58] = v & 0xFFFF;
             if (q == 0x5F) {
                 m->d2h_valid = 1;
-                m->evt |= m->iface403 ? 0 : 2;
-                m->int0_req = m->iface403 ? 0 : 1;
+                m->evt |= 2;
+                m->int0_req = 1;
                 uint32_t pending = c5x_dxr_head(m->dsp) - m->tx_seen;
                 MsgEnt me = { (int64_t)m->tx_all_n + (int64_t)pending,
                               m->d2h[0x5C - 0x58], m->d2h[0x5D - 0x58],
                               m->d2h[0x5E - 0x58], m->d2h[0x5F - 0x58],
                               i186_cycles(m->cpu) };
                 PUSH(m->msg_log, m->msg_log_n, m->msg_log_cap, MsgEnt, me);
+                mtrace(m, "DSP->host msg %04X %04X %04X %04X", me.w0, me.w1, me.w2, me.w3);
             }
         }
     }
@@ -1481,6 +1480,20 @@ static void line_feed(Machine *m, int64_t now)
 /* ---- one codec sample period (machine.py _sample) ---- */
 static void machine_sample(Machine *m)
 {
+    if (getenv("DMTRACE") && m->tag == 'A' && m->dsp) { /* diagnostic: DMTRACE=<file>:<hex>,<hex>,...  (u16 per cell per codec sample);
+                                                        * DMTRACE_LAST=<K> keeps only the last K samples (written at exit) */
+        static FILE *tf; static unsigned short addrs[1024]; static int na; static int init; static uint16_t *ring; static size_t rk, rn; static char path[512];
+        if (!init) { init = 1; char spec[16384]; snprintf(spec, sizeof spec, "%s", getenv("DMTRACE")); char *colon = strchr(spec, ':');
+            if (colon) { *colon = 0; snprintf(path, sizeof path, "%s", spec); for (char *t = strtok(colon + 1, ","); t && na < 1024; t = strtok(NULL, ",")) addrs[na++] = (unsigned short)strtol(t, NULL, 16);
+                if (getenv("DMTRACE_LAST")) { rk = (size_t)atol(getenv("DMTRACE_LAST")); ring = calloc(rk * (size_t)na, sizeof *ring); }
+                else { tf = fopen(path, "wb"); if (tf) { fwrite(&na, 4, 1, tf); fwrite(addrs, 2, (size_t)na, tf); } } } }
+        const uint16_t *d = c5x_dmem(m->dsp), *pmm = c5x_pmem(m->dsp);
+        if (ring) { uint16_t *row = ring + (rn % rk) * (size_t)na; for (int i = 0; i < na; i++) row[i] = addrs[i] < 0xC00 ? d[addrs[i]] : pmm[addrs[i]]; rn++;
+            if ((rn & 0x3FFF) == 0 || rn == 1) { /* rewrite the file now and then so an interrupted run still leaves data */
+                FILE *f = fopen(path, "wb"); if (f) { size_t cnt = rn < rk ? rn : rk, first = rn < rk ? 0 : rn % rk; fwrite(&na, 4, 1, f); fwrite(addrs, 2, (size_t)na, f);
+                    for (size_t k = 0; k < cnt; k++) fwrite(ring + ((first + k) % rk) * (size_t)na, 2, (size_t)na, f); fclose(f); } } }
+        else if (tf) { for (int i = 0; i < na; i++) { uint16_t v = addrs[i] < 0xC00 ? d[addrs[i]] : pmm[addrs[i]]; fwrite(&v, 2, 1, tf); } fflush(tf); }
+    }
     if (m->sec_frame && m->ac01_model && m->aic_req) {
         /* A primary word with D1 D0 = 11 was just consumed: the AC01
          * clocks its secondary frame half a primary interval later; it
@@ -1581,6 +1594,17 @@ static void machine_sample(Machine *m)
         m->lat_q_head %= cap;
         m->lat_q_n--;
     }
+    if (getenv("AICDBG")) {
+        static struct { double sq, sq2; unsigned long n, clip; unsigned reg4; } st[2]; static Machine *ids[2];
+        int di = (ids[0] == m) ? 0 : (ids[1] == m) ? 1 : (ids[0] ? (ids[1] = m, 1) : (ids[0] = m, 0));
+        double gi = m->ac01_model ? aic_gain_in(m) : 1.0;
+        st[di].sq += (double)base * base; st[di].sq2 += (double)base * base * gi * gi; st[di].n++;
+        if (fabs(base * gi) >= 32760) st[di].clip++;
+        if (st[di].n >= (unsigned long)m->rate) {
+            fprintf(stderr, "AICDBG %c rate=%d in_rms(before gain)=%.0f gain=x%.0f in_rms(at DSP)=%.0f clipped=%lu reg4=%02X\n", m->tag, m->rate, sqrt(st[di].sq / st[di].n), gi, sqrt(st[di].sq2 / st[di].n), st[di].clip, m->aic[4]);
+            st[di].sq = st[di].sq2 = 0; st[di].n = st[di].clip = 0;
+        }
+    }
     if (m->ac01_model)
         base = (int32_t)((int)(base * aic_gain_in(m)) & ~3);
     if (m->rx_trace)
@@ -1639,25 +1663,17 @@ static void machine_service(Machine *m, int64_t now)
             machine_sample(m);
             m->next_samp += m->sample_cyc;
         }
-        if (!m->iface403 && !m->h2d_pending &&
+        if (!m->h2d_pending &&
             machine_rd16(m, 0x29A) != machine_rd16(m, 0x29C)) {
-            /* SV25 supervisor's ring pointers; on the 403 supervisor
-             * INT0 is the free-running heartbeat only. HLE stand-in:
+            /* SV25 supervisor's ring pointers. HLE stand-in:
              * TX slot free and the supervisor has queued words. */
             m->evt |= 1;
             m->evt_seen &= (uint8_t)~1;
         }
-        if (m->hb_pending || (!m->iface403 && (m->evt & ~m->evt_seen))) {
-            int v32 = machine_rd16(m, 0x32), v30 = machine_rd16(m, 0x30);
-            int unset = 0;
-            for (int i = 0; i < m->prof->int0_unset_n; i++)
-                if (v32 == m->prof->int0_unset[i][0] && v30 == m->prof->int0_unset[i][1])
-                    unset = 1;
-            if (!unset) {
-                m->req |= (uint16_t)(1 << S_INT0);
-                m->hb_pending = 0;
-                m->evt_seen |= (uint8_t)m->evt;
-            }
+        if (m->hb_pending || (m->evt & ~m->evt_seen)) {
+            m->req |= (uint16_t)(1 << S_INT0);
+            m->hb_pending = 0;
+            m->evt_seen |= (uint8_t)m->evt;
         }
     }
 }

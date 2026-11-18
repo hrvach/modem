@@ -255,6 +255,7 @@ struct C5x {
 
     /* PC-hit / watch / trace diagnostics. */
     uint32_t pc_hits[65536];
+    uint32_t dmw_n[65536];     /* data-memory writes per address (diag only) */
     uint32_t watch_hits[65536];
     int32_t watch_a;
     int32_t trace_pc;
@@ -820,6 +821,7 @@ static inline __attribute__((always_inline)) void dm_wr(C5x *c, uint16_t a, uint
     if (c->diag) {
         if (a >= DM_MMR_END && !dm_internal(c, a))
             c->ext_n[1][a >> 10]++;
+        c->dmw_n[a]++;
         if (a >= DM_FF_START)
             c->ff_n[1][a & 255]++;
     }
@@ -3281,7 +3283,8 @@ void c5x_set_watch(C5x *c, int32_t a)
 }
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc) { return c->watch_hits[pc & 0xFFFF]; }
 uint32_t c5x_pc_hits(C5x *c, uint32_t pc) { return c->pc_hits[pc & 0xFFFF]; }
-void c5x_pc_hits_clear(C5x *c) { memset(c->pc_hits, 0, sizeof c->pc_hits); }
+void c5x_pc_hits_clear(C5x *c) { memset(c->pc_hits, 0, sizeof c->pc_hits); memset(c->dmw_n, 0, sizeof c->dmw_n); }
+uint32_t c5x_dm_writes(C5x *c, uint32_t a) { return c->dmw_n[a & 0xFFFF]; }
 void c5x_set_trace(C5x *c, int32_t pc)
 {
     c->trace_pc = pc;

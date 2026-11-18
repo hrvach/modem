@@ -1,0 +1,7 @@
+This folder is the snapshot (it replaced the earlier backup of 2026-11-17).
+Snapshot of the working tree (committed and uncommitted files) taken 2026-11-18 03:53.
+branch: two-instance-modems   commit: 9d0cf01   "Track web/modem/build-wasm.sh: it lists the wasm exports the constellation scope needs"
+contents: web/ (page, worker, modem.c, build-wasm.sh, built modem.js/.wasm/.data), src/ (C: cpu, dsp, glue), tests/,
+          Makefile, call.conf, README.md, OPS.md, docs/, tools/ (BinModem bridge)
+left out: fw/ and SV25.XMD (firmware images), bin/ lib/ out/ and object files (rebuild with make), *.wav / *.raw
+uncommitted at the time: 0 tracked files modified

@@ -115,6 +115,7 @@ void c5x_set_watch(C5x *c, int32_t a);
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc);
 uint32_t c5x_pc_hits(C5x *c, uint32_t pc);
 void c5x_pc_hits_clear(C5x *c);
+uint32_t c5x_dm_writes(C5x *c, uint32_t a); /* data-memory writes at a since the last clear (diag on only) */
 uint32_t c5x_trace_n(C5x *c);
 void c5x_trace_get(C5x *c, uint32_t i, uint32_t *acc, uint16_t *ret, uint16_t *ret2);
 uint32_t c5x_mmr_count(C5x *c, int wr, int a);

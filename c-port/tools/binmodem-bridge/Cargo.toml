@@ -1,0 +1,12 @@
+[package]
+name = "bridge"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# BinModem checked out next to this repo (~/Programming/BinModem). build.sh builds
+# from a patched scratch copy instead; this path is for a toolchain new enough to
+# build BinModem as it is.
+modem = { path = "../../../BinModem/crates/modem" }
+
+[workspace]

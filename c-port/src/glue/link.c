@@ -5,8 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <signal.h>
 
 #include "link.h"
+static int bm_on, bm_side; /* bm_side: which machine the bridge replaces; 0 = answerer A, 1 = caller B */
+static void bm_queue(const uint8_t *s, size_t n);
 #include "wav.h"
 
 #define ACC_WINDOW 100000 /* co_step sees 100k-cycle windows */
@@ -147,11 +151,83 @@ void link_send(Link *l, int side, const uint8_t *s, size_t n)
     link_trace(l, side, side ? "HOST->B" : "HOST->A", s, n);
     /* A host send ends its line even without CR/LF (e.g. the payload). */
     trace_flush(l, side, side ? "HOST->B" : "HOST->A");
+    if (bm_on && side == bm_side && strcmp(l->state, "connected") == 0) { bm_queue(s, n); return; }
     machine_send(side ? l->b : l->a, s, n);
 }
 
+/* ---- temp: external BinModem peer replacing the answerer's audio/DTE once connected ---- */
+/* Streaming windowed-sinc (Lanczos a=12) resampler: the emulator's codec rate (which changes during a
+ * call) <-> the 28800 Hz line the bridge always sees. */
+typedef struct { double step, scale, pos; double *buf; size_t n, cap; } Rs;
+#define RS_A 12.0
+static void rs_init(Rs *r, double fin, double fout)
+{
+    free(r->buf); memset(r, 0, sizeof *r);
+    r->step = fin / fout; r->scale = fout < fin ? fout / fin : 1.0;
+    r->cap = 65536; r->buf = calloc(r->cap, sizeof *r->buf); r->n = 40;
+}
+static void rs_push(Rs *r, double x)
+{
+    if (r->n == r->cap) { r->cap *= 2; r->buf = realloc(r->buf, r->cap * sizeof *r->buf); }
+    r->buf[r->n++] = x;
+}
+static double rs_lz(const Rs *r, double x)
+{
+    double u = x * r->scale; if (fabs(u) >= RS_A) return 0.0;
+    double a = u == 0.0 ? 1.0 : sin(M_PI * u) / (M_PI * u), b = u == 0.0 ? 1.0 : sin(M_PI * u / RS_A) / (M_PI * u / RS_A);
+    return r->scale * a * b;
+}
+static size_t rs_pull(Rs *r, double *out, size_t max)
+{
+    size_t reach = (size_t)ceil(RS_A / r->scale) + 1, o = 0;
+    while (o < max && (size_t)r->pos + reach < r->n) {
+        size_t c = (size_t)r->pos, lo = c > reach ? c - reach : 0, hi = c + reach; double acc = 0, w = 0;
+        for (size_t k = lo; k <= hi; k++) { double wk = rs_lz(r, r->pos - (double)k); acc += r->buf[k] * wk; w += wk; }
+        out[o++] = fabs(w) > 1e-9 ? acc / w : 0.0; r->pos += r->step;
+    }
+    size_t drop = (size_t)r->pos > reach + 2 ? (size_t)r->pos - reach - 2 : 0;
+    if (drop > 4096) { memmove(r->buf, r->buf + drop, (r->n - drop) * sizeof *r->buf); r->n -= drop; r->pos -= (double)drop; }
+    return o;
+}
+#define BM_LINE_RATE 28800
+static Rs bm_up, bm_dn; static int bm_cur_rate; static double bm_fifo[131072]; static size_t bm_fifo_n;
+static int bm_in = -1, bm_out = -1, bm_init;
+static uint8_t bm_pend[4096]; static size_t bm_pend_n; static uint32_t bm_rate = 7200;
+static int bm_frame(const float *in, uint32_t n, float *out, uint8_t *dte_out, uint32_t *dn)
+{
+    uint32_t hdr[3] = { n, (uint32_t)bm_pend_n, bm_rate };
+    if (write(bm_in, hdr, 12) != 12) return -1;
+    if (n && write(bm_in, in, n * 4) != (ssize_t)(n * 4)) return -1;
+    if (bm_pend_n && write(bm_in, bm_pend, bm_pend_n) != (ssize_t)bm_pend_n) return -1;
+    bm_pend_n = 0;
+    uint32_t rh[2]; size_t got = 0; uint8_t *p = (uint8_t *)rh;
+    while (got < 8) { ssize_t r = read(bm_out, p + got, 8 - got); if (r <= 0) return -1; got += (size_t)r; }
+    size_t need = (size_t)rh[0] * 4 + rh[1]; uint8_t *buf = malloc(need ? need : 1); got = 0;
+    while (got < need) { ssize_t r = read(bm_out, buf + got, need - got); if (r <= 0) { free(buf); return -1; } got += (size_t)r; }
+    memcpy(out, buf, (size_t)rh[0] * 4); memcpy(dte_out, buf + (size_t)rh[0] * 4, rh[1]); *dn = rh[1]; free(buf);
+    return 0;
+}
+static void bm_start(void)
+{
+    if (bm_init) return; bm_init = 1;
+    const char *exe = getenv("BINMODEM"); if (!exe) return;
+    int ci[2], co[2]; if (pipe(ci) || pipe(co)) return;
+    pid_t pid = fork();
+    if (pid == 0) {
+        dup2(ci[0], 0); dup2(co[1], 1); close(ci[1]); close(co[0]);
+        const char *cmd = getenv("BINMODEM_AT") ? getenv("BINMODEM_AT") : "AT+MS=V34";
+        execl(exe, exe, "serve", "7200", cmd, (char *)NULL); _exit(127);
+    }
+    close(ci[0]); close(co[1]); bm_in = ci[1]; bm_out = co[0]; bm_on = 1;
+    { const char *r = getenv("BM_ROLE"); bm_side = (r && strcmp(r, "caller") == 0) ? 1 : 0; }
+    signal(SIGPIPE, SIG_IGN);
+}
+static void bm_queue(const uint8_t *s, size_t n) { if (bm_pend_n + n <= sizeof bm_pend) { memcpy(bm_pend + bm_pend_n, s, n); bm_pend_n += n; } }
+
 void link_set_state(Link *l, const char *st)
 {
+    if (!bm_init) bm_start();
+    if (bm_on && strcmp(st, "answering") == 0) { if (bm_side == 0) bm_queue((const uint8_t *)"ATA\r", 4); else bm_queue((const uint8_t *)"ATD1\r", 5); float z[1]; uint8_t d[4096]; uint32_t dn; bm_frame(z, 0, z, d, &dn); }
     printf("%9.3f STATE    %s\n", (double)link_samples(l) / LINK_FS, st);
     snprintf(l->state, sizeof l->state, "%s", st);
     l->t_state = link_samples(l);
@@ -338,6 +414,41 @@ static void link_exchange(Link *l, int32_t *ta, int32_t *tb,
     size_t ta_n = link_new_samples(l->a, 0, l, ta, 8192);
     size_t tb_n = link_new_samples(l->b, 1, l, tb, 8192);
     size_t xa_n = machine_dte_text(l->a, dte, sizeof dte);
+    if (bm_on && bm_side == 0 && strcmp(l->state, "connected") == 0) xa_n = 0; /* emulated A is replaced */
+    if (bm_on && strcmp(l->state, "connected") == 0) {
+        static float fin[40000], fout[40000]; static double up[40000], dn[40000]; uint8_t bd[4096]; uint32_t bdn = 0;
+        int bs = bm_side;
+        int32_t *mine = bs == 0 ? ta : tb, *far = bs == 0 ? tb : ta; /* replaced machine's tx slot / the emulated one's tx */
+        size_t *mine_n = bs == 0 ? &ta_n : &tb_n, far_n = bs == 0 ? tb_n : ta_n;
+        Machine *emu = bs == 0 ? l->b : l->a, *rep = bs == 0 ? l->a : l->b;
+        rep->rate = emu->rate; /* the replaced machine is unused: keep link out of its resampling branch */
+        if (emu->rate != bm_cur_rate) { /* codec rate changed (7200, 9600, 10267 ...): new filters */
+            bm_cur_rate = emu->rate; rs_init(&bm_up, (double)bm_cur_rate, BM_LINE_RATE); rs_init(&bm_dn, BM_LINE_RATE, (double)bm_cur_rate); bm_fifo_n = 0;
+        }
+        for (size_t k = 0; k < far_n; k++) rs_push(&bm_up, (double)far[k] * l->gain);
+        size_t m = rs_pull(&bm_up, up, 40000);
+        for (size_t k = 0; k < m; k++) fin[k] = (float)up[k];
+        bm_rate = BM_LINE_RATE;
+        if (bm_frame(fin, (uint32_t)m, fout, bd, &bdn) == 0) {
+            for (size_t k = 0; k < m; k++) rs_push(&bm_dn, (double)fout[k]);
+            size_t o = rs_pull(&bm_dn, dn, 40000);
+            for (size_t k = 0; k < o && bm_fifo_n < 131072; k++) bm_fifo[bm_fifo_n++] = dn[k];
+            size_t take = bm_fifo_n < far_n ? bm_fifo_n : far_n, pad = far_n - take;
+            for (size_t k = 0; k < pad; k++) mine[k] = 0;
+            for (size_t k = 0; k < take; k++) mine[pad + k] = (int32_t)bm_fifo[k];
+            memmove(bm_fifo, bm_fifo + take, (bm_fifo_n - take) * sizeof *bm_fifo); bm_fifo_n -= take;
+            /* the recording takes the bridge's audio, not the replaced machine's */
+            int32_t **aud = bs == 0 ? &l->audio_a : &l->audio_b; size_t *an = bs == 0 ? &l->audio_a_n : &l->audio_b_n, *ac = bs == 0 ? &l->audio_a_cap : &l->audio_b_cap;
+            *an -= *mine_n;
+            append_i32(aud, an, ac, mine, far_n);
+            *mine_n = far_n;
+            if (bdn) {
+                link_trace(l, bs, bs == 0 ? "A->HOST" : "B->HOST", bd, bdn);
+                if (bs == 0) append_u8(&l->txt_a, &l->txt_a_n, &l->txt_a_cap, bd, bdn);
+                else append_u8(&l->txt_b, &l->txt_b_n, &l->txt_b_cap, bd, bdn);
+            }
+        }
+    }
     if (xa_n) {
         link_trace(l, 0, "A->HOST", dte, xa_n);
         append_u8(&l->txt_a, &l->txt_a_n, &l->txt_a_cap, dte, xa_n);
@@ -345,6 +456,7 @@ static void link_exchange(Link *l, int32_t *ta, int32_t *tb,
             l->ring_seen_at = link_samples(l);
     }
     size_t xb_n = machine_dte_text(l->b, dte, sizeof dte);
+    if (bm_on && bm_side == 1 && strcmp(l->state, "connected") == 0) xb_n = 0; /* emulated B is replaced */
     if (xb_n) {
         link_trace(l, 1, "B->HOST", dte, xb_n);
         append_u8(&l->txt_b, &l->txt_b_n, &l->txt_b_cap, dte, xb_n);

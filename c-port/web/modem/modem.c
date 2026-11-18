@@ -33,10 +33,70 @@ void modem_send(const char *s)
     machine_send_str(M, s);
 }
 
+/* ---- Constellation scope --------------------------------------------------
+ * Two cells of the DSP's data memory hold the point the data pump is working
+ * on (found by tracing: DM 0x0224 and 0x0228 take one new value each symbol;
+ * together they fill a regular grid like the V.34 constellation). They change
+ * at the symbol rate, much faster than the page polls, so the modem is run in
+ * slices of about one codec sample and the pair is read after each slice;
+ * every change goes into a small ring that the page drains. */
+#define SCOPE_MAX 4096
+static int scope_x = -1, scope_y = -1;
+static int16_t scope_pts[2 * SCOPE_MAX];
+static int scope_n;
+static uint16_t scope_lx, scope_ly;
+
+void modem_scope_set(int ax, int ay)
+{
+    scope_n = 0;
+    if (ax < 0 || ay < 0 || ax >= 0xC00 || ay >= 0xC00) {   /* on-chip RAM only */
+        scope_x = scope_y = -1;
+        return;
+    }
+    scope_x = ax;
+    scope_y = ay;
+}
+
+static void scope_sample(void)
+{
+    const uint16_t *d = c5x_dmem(M->dsp);
+    uint16_t x = d[scope_x], y = d[scope_y];
+    if ((x != scope_lx || y != scope_ly) && scope_n < SCOPE_MAX) {
+        scope_pts[2 * scope_n] = (int16_t)x;
+        scope_pts[2 * scope_n + 1] = (int16_t)y;
+        scope_n++;
+    }
+    scope_lx = x;
+    scope_ly = y;
+}
+
+/* Copy out up to `max` points (x, y pairs); returns how many. */
+int modem_scope_pull(int16_t *out, int max)
+{
+    int n = scope_n < max ? scope_n : max;
+    memcpy(out, scope_pts, (size_t)n * 2 * sizeof *out);
+    memmove(scope_pts, scope_pts + 2 * n, (size_t)(scope_n - n) * 2 * sizeof *scope_pts);
+    scope_n -= n;
+    return n;
+}
+
 /* Run the modem for `cycles` CPU cycles. Returns the machine status. */
 int modem_run(double cycles)
 {
-    return machine_run(M, (uint64_t)cycles);
+    if (scope_x < 0 || !M->dsp)
+        return machine_run(M, (uint64_t)cycles);
+    uint64_t left = (uint64_t)cycles;
+    uint64_t slice = (uint64_t)((double)M->cpu_hz / (double)(M->rate > 0 ? M->rate : 7200) * 0.9);
+    if (slice < 200)
+        slice = 200;
+    int st = 0;
+    while (left > 0) {
+        uint64_t s = left < slice ? left : slice;
+        st = machine_run(M, s);
+        left -= s;
+        scope_sample();
+    }
+    return st;
 }
 
 /* Simulated CPU cycles so far, for wall-clock pacing. */

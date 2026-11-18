@@ -1066,6 +1066,7 @@ static void exec_test_xchg_mov(C *c, uint8_t op, int w) {
         break;
     case 0x8C: /* MOV r/m, sreg */
         decode_modrm(c);
+        if (c->regf > 3) { bad(c, op); return; }   /* reg 4-7 is undefined */
         rm_wr(c, 1, c->sr[c->regf & 3]);
         break;
     case 0x8D: /* LEA r, m */
@@ -1074,11 +1075,13 @@ static void exec_test_xchg_mov(C *c, uint8_t op, int w) {
         break;
     case 0x8E: /* MOV sreg, r/m */
         decode_modrm(c);
+        if (c->regf > 3) { bad(c, op); return; }   /* reg 4-7 is undefined */
         c->sr[c->regf & 3] = (uint16_t)rm_rd(c, 1);
         c->inh = 1;
         break;
     case 0x8F: { /* POP r/m: EA is decoded BEFORE the pop */
         decode_modrm(c);
+        if (c->regf != 0) { bad(c, op); return; }   /* reg != 0 is undefined */
         uint16_t v = pop16(c);
         rm_wr(c, 1, v);
         break;
@@ -1160,8 +1163,8 @@ static void exec_mov_imm(C *c, uint8_t op) {
  * manual's terms, with n the masked count).  Kept verbatim, including
  * the unsigned wrap of the subtraction. */
 static void exec_shift_imm(C *c, uint8_t op, int w) {
-    (void)op;
     decode_modrm(c);
+    if (c->regf == 6) { bad(c, op); return; }   /* reg 6 is undefined */
     uint32_t v = rm_rd(c, w);
     int n = fetch8(c);
     if (c->cyc_model) c->cycles += (c->mod == 3 ? 0 : 6) + (n & 31) - 1;
@@ -1204,8 +1207,8 @@ static void exec_les_lds(C *c, uint8_t op) {
 
 /* MOV r/m, imm, 0xC6/0xC7 (orig. L361). */
 static void exec_mov_rm_imm(C *c, uint8_t op, int w) {
-    (void)op;
     decode_modrm(c);
+    if (c->regf != 0) { bad(c, op); return; }   /* reg != 0 is undefined */
     uint32_t v = w ? fetch16(c) : fetch8(c);
     rm_wr(c, w, v);
 }
@@ -1257,6 +1260,7 @@ static void exec_int(C *c, uint8_t op) {
  * Kept verbatim, including the unsigned wrap. */
 static void exec_shift_1_cl(C *c, uint8_t op, int w) {
     decode_modrm(c);
+    if (c->regf == 6) { bad(c, op); return; }   /* reg 6 is undefined */
     uint32_t v = rm_rd(c, w);
     int n = (op & 2) ? (c->r[REG_CX] & 0xFF) : 1;
     if (c->cyc_model) {
@@ -1355,8 +1359,8 @@ static void exec_halt_cmc(C *c, uint8_t op) {
  * DIV/IDIV overflow (including divide by zero) takes INT 0 with IP
  * pointing at the next instruction. */
 static void exec_group_f6f7(C *c, uint8_t op, int w) {
-    (void)op;
     decode_modrm(c);
+    if (c->regf == 1) { bad(c, op); return; }   /* reg 1 is undefined */
     uint32_t v = rm_rd(c, w);
     switch (c->regf) {
     case 0: case 1: /* TEST r/m, imm */
@@ -1681,10 +1685,10 @@ static uint8_t fetch_opcode(C *c) {
         else if (op == PREFIX_SS) c->seg_ovr = SEG_SS;
         else if (op == PREFIX_DS) c->seg_ovr = SEG_DS;
 
-        if (c->cyc_model &&
-            (op == PREFIX_ES || op == PREFIX_CS || op == PREFIX_SS ||
-             op == PREFIX_DS || op == PREFIX_LOCK))
-            c->cycles += 2; /* prefix: 2 clocks */
+        if (op == PREFIX_ES || op == PREFIX_CS || op == PREFIX_SS ||
+            op == PREFIX_DS || op == PREFIX_LOCK) {
+            if (c->cyc_model) c->cycles += 2; /* prefix: 2 clocks, model 1 only */
+        }
         else if (op == PREFIX_REPNE) { c->rep = 1; c->repz = 0; }
         else if (op == PREFIX_REP) { c->rep = 1; c->repz = 1; }
         else if (op == PREFIX_LOCK) { /* LOCK: accepted, no effect */ }

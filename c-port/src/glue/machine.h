@@ -87,6 +87,9 @@ void c5x_set_cycle_model(C5x *c, int m);
 void c5x_set_legacy(C5x *c, int m);
 uint64_t c5x_timer_expiries(C5x *c);
 uint64_t c5x_total_cycles(C5x *c);
+uint32_t c5x_pc_hits(C5x *c, uint32_t pc);
+void c5x_pc_hits_clear(C5x *c);
+uint32_t c5x_dm_writes(C5x *c, uint32_t a);
 uint32_t c5x_dxr_head(C5x *c);
 uint16_t *c5x_dxr_ring(C5x *c);
 
@@ -172,7 +175,6 @@ struct Machine {
     int sample_cyc;    /* CPU_HZ // 7200, floor division as in machine.py */
     int dsp_cps;       /* DSP cycles per codec sample at the current rate */
     int rate;          /* current codec rate, Hz (7200 or 9600 ...) */
-    int iface403;      /* IFACE == '403' */
 
     /* Experiment toggles (config keys; see call.conf). */
     int p51div, hb_timer, dsp_clk_fixed, port_rb, sec_frame, int23;
@@ -217,6 +219,9 @@ struct Machine {
 
     /* DSP mailbox / overlay / AC01 state. */
     uint16_t h2d[8], d2h[8]; /* words 0x58..0x5F */
+    /* Instrumentation only: a DSP word overwritten before the 186 read it. */
+    uint8_t d2h_unread[8];
+    uint64_t d2h_overwrites;
     uint8_t ovl_bytes[256];
     uint8_t *ovl_data; size_t ovl_data_n, ovl_data_cap;
     uint32_t ovl_addr;
@@ -249,8 +254,6 @@ struct Machine {
     uint8_t *dsp_bursts; /* flat, 8 bytes per burst */
     size_t dsp_bursts_n, dsp_bursts_cap;
     uint8_t burst_tmp[256];
-    int sender_mode; /* 0 = PC-range check 0x83D6..0x8420, 1 = scanned set */
-    uint8_t sender_pcs[65536];
 
     CmdEnt *cmd_log; size_t cmd_log_n, cmd_log_cap;
     Cmd16Ent *cmd_log16; size_t cmd_log16_n, cmd_log16_cap;
@@ -298,6 +301,7 @@ struct Machine {
 Machine *machine_new(const Config *cfg);
 void machine_free(Machine *m);
 int machine_run(Machine *m, uint64_t cycles); /* i186 status code */
+void machine_host_cmd(Machine *m, int cmd, int arg); /* test hook: see config inject_cmd */
 void machine_send(Machine *m, const uint8_t *text, size_t len);
 void machine_send_str(Machine *m, const char *text);
 /* Drain dte_out into out (dropping 0xFF bytes, as in machine.py

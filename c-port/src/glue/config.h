@@ -11,8 +11,7 @@
  * file always beats the same env var.
  *
  * Profiles are the per-firmware settings from modem/sys/profiles.py:
- * sv25 is the default (see call.conf). id20_403 / sv20 are supported when
- * their flash image is supplied later.
+ * Profile: sv25 is the only one (see call.conf).
  */
 #ifndef COURIER_CONFIG_H
 #define COURIER_CONFIG_H
@@ -30,16 +29,7 @@ typedef struct {
     long cpu_hz;
     long dsp_hz;
     const char *iface; /* "403" or "25" */
-    int sender_scan;
     long dsp_base_bytes; /* -1 = take whatever the supervisor sends */
-    int isr_presets_all; /* -1 = none; else value for data cells 0x60..0x6A */
-    /* Extra ISR preset cells (sv25: 0x65=0x8189, 0x68=0x820C, 0x69=0x81B7). */
-    int isr_extra_addr[4];
-    int isr_extra_val[4];
-    int isr_extra_n;
-    /* (rd16(0x32), rd16(0x30)) pairs meaning "INT0 handler not installed". */
-    int int0_unset[2][2];
-    int int0_unset_n;
     int hw_idx;
 } Profile;
 
@@ -96,6 +86,9 @@ typedef struct {
     int fax_patch;
     int cmpr;
     int tintslot; /* -1 = unset */
+    /* Test hook: post host->DSP command inject_cmd with argument inject_arg to
+     * both modems at inject_at seconds. inject_cmd -1 = off (default). */
+    int inject_cmd; int inject_arg; double inject_at;
     char dsp_rom[CFG_MAX_PATH];
     int bankwr;
     int hw_idx; /* -1 = take from profile */

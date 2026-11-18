@@ -1,0 +1,77 @@
+--- a/crates/datapump/src/v34/training.rs
++++ b/crates/datapump/src/v34/training.rs
+@@ -1159,7 +1159,14 @@
+         })
+     }
+ 
++    fn trace(&self, what: &str) {
++        if std::env::var_os("PHASE4_TRACE").is_some() {
++            eprintln!("P4TRACE {:8.3}s {:?} {what}", self.now as f64 / self.fs, self.stage);
++        }
++    }
++
+     fn fail(&mut self, why: &'static str) {
++        self.trace(&format!("FAIL: {why}"));
+         self.stopped_at = self.stage.name();
+         self.status = Status::Failed(why);
+         self.stage = Stage::Finished;
+@@ -1169,6 +1176,7 @@
+     }
+ 
+     fn enter(&mut self, stage: Stage) {
++        self.trace(&format!("-> {stage:?}"));
+         self.stage = stage;
+     }
+ 
+@@ -1244,6 +1252,7 @@
+             Heard::S => {}
+             Heard::Reversal { at } => self.reversal(at),
+             Heard::Trained { snr_db } => {
++                self.trace(&format!("heard Trained snr {snr_db:.1} dB"));
+                 match self.stage {
+                     Stage::CallTraining => {
+                         self.phase3_snr = Some(snr_db);
+@@ -1262,7 +1271,10 @@
+                 let size = self.rx.size();
+                 self.listening.begin_trn(size);
+             }
+-            Heard::Untrained => self.fail("the far end's training sequence did not train this end"),
++            Heard::Untrained => {
++                self.trace("heard Untrained");
++                self.fail("the far end's training sequence did not train this end")
++            }
+             Heard::Symbol(symbol) => {
+                 if matches!(self.stage, Stage::Data | Stage::Renegotiation) && !self.far_s_bar {
+                     match self.s_watch.feed(symbol.point) {
+@@ -1371,6 +1383,7 @@
+     }
+ 
+     fn event(&mut self, event: Event) {
++        self.trace(&format!("event {event:?}"));
+         match (self.stage, event) {
+             (Stage::CallAwaitJ, Event::J(size)) => {
+                 // 11.3.1.1.3: "may wait for up to 500 ms" -- and does not, since
+@@ -1519,7 +1532,7 @@
+             call_to_answer: wide_cap(call_to_answer),
+             answer_to_call: wide_cap(answer_to_call),
+             auxiliary: false,
+-            trellis: Trellis::States16,
++            trellis: match std::env::var("BM_TRELLIS").as_deref() { Ok("32") => Trellis::States32, Ok("64") => Trellis::States64, _ => Trellis::States16 },
+             non_linear: false,
+             expanded_shaping: false,
+             acknowledge: false,
+--- a/crates/datapump/src/v34/data.rs
++++ b/crates/datapump/src/v34/data.rs
+@@ -313,7 +313,11 @@
+         if self.ready.is_empty() {
+             self.encode_frame(source);
+         }
+-        self.ready.pop_front().expect("a frame makes eight symbols")
++        let sym = self.ready.pop_front().expect("a frame makes eight symbols");
++        if std::env::var_os("DATA_TX_TRACE").is_some() {
++            eprintln!("TXSYM {:.6} {:.6}", sym.re, sym.im);
++        }
++        sym
+     }
+ 
+     fn encode_frame(&mut self, source: &mut dyn FnMut() -> bool) {

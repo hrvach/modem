@@ -16,32 +16,11 @@
 
 static const Profile PROFILES[] = {
     {
-        .key = "id20_403",
-        .name = "USRobotics Courier V.Everything, supervisor 7.4.16 / DSP 3.1.2 (ID_SDL v4.03d)",
-        .flash = "fw/decoded/ID20_403.flash.bin", .nvram = "fw/nvram_ID20_403.bin",
-        .cpu_hz = 20160000, .dsp_hz = 40320000, .iface = "403",
-        .sender_scan = 1, .dsp_base_bytes = -1, .isr_presets_all = -1,
-        .isr_extra_n = 0,
-        .int0_unset = { { 0, 0 } }, .int0_unset_n = 1, .hw_idx = 7,
-    },
-    {
-        .key = "sv20",
-        .name = "USRobotics Courier V.Everything, US/Canada external, supervisor 7.2.4 / DSP 2.2.7",
-        .flash = "fw/decoded/SV20.flash.bin", .nvram = "fw/nvram_SV20.bin",
-        .cpu_hz = 20160000, .dsp_hz = 40320000, .iface = "403",
-        .sender_scan = 1, .dsp_base_bytes = -1, .isr_presets_all = -1,
-        .isr_extra_n = 0,
-        .int0_unset = { { 0, 0 } }, .int0_unset_n = 1, .hw_idx = 7,
-    },
-    {
         .key = "sv25",
         .name = "previous image (SV25)",
         .flash = "fw/SV25.flash.bin", .nvram = "fw/nvram.bin",
         .cpu_hz = 25804800, .dsp_hz = 40320000, .iface = "25",
-        .sender_scan = 0, .dsp_base_bytes = 55420, .isr_presets_all = 0x81AE,
-        .isr_extra_addr = { 0x65, 0x68, 0x69 }, .isr_extra_val = { 0x8189, 0x820C, 0x81B7 },
-        .isr_extra_n = 3,
-        .int0_unset = { { 0, 0x305 }, { 0, 0 } }, .int0_unset_n = 2, .hw_idx = 7,
+        .dsp_base_bytes = 55420, .hw_idx = 7,
     },
 };
 
@@ -55,13 +34,11 @@ const Profile *profile_by_name(const char *name)
     return NULL;
 }
 
-/* profiles.py match prefixes: ID20/ID25/V90XX/IDSDL -> id20_403, SV20 -> sv20, SV25 -> sv25. */
+/* Filename prefix -> profile: SV25 -> sv25. */
 const Profile *profile_by_flash_name(const char *base)
 {
     static const struct { const char *prefix, *key; } m[] = {
-        { "ID20", "id20_403" }, { "ID25", "id20_403" },
-        { "V90XX", "id20_403" }, { "IDSDL", "id20_403" },
-        { "SV20", "sv20" }, { "SV25", "sv25" },
+        { "SV25", "sv25" },
     };
     if (!base)
         return NULL;
@@ -240,6 +217,9 @@ static void apply_file(Config *cfg, const KvList *kv)
     if ((v = kv_get(kv, "fax_patch"))) cfg->fax_patch = parse_bool(v);
     if ((v = kv_get(kv, "cmpr"))) cfg->cmpr = parse_bool(v);
     if ((v = kv_get(kv, "tintslot"))) cfg->tintslot = parse_int(v, 0);
+    if ((v = kv_get(kv, "inject_cmd"))) cfg->inject_cmd = (int)strtol(v, NULL, 0);
+    if ((v = kv_get(kv, "inject_arg"))) cfg->inject_arg = (int)strtol(v, NULL, 0);
+    if ((v = kv_get(kv, "inject_at"))) cfg->inject_at = strtod(v, NULL);
     if ((v = kv_get(kv, "dsp_rom"))) snprintf(cfg->dsp_rom, sizeof cfg->dsp_rom, "%s", v);
     if ((v = kv_get(kv, "bankwr"))) cfg->bankwr = parse_bool(v);
     if ((v = kv_get(kv, "hw_idx"))) cfg->hw_idx = parse_int(v, 10);
@@ -343,6 +323,7 @@ static void set_defaults(Config *cfg, const Profile *p)
     cfg->patch_crc = 0x1735;
     cfg->nvram_mode = -1; /* Link machines: none (machine.py Link default) */
     cfg->fax_patch = 0; cfg->cmpr = 0; cfg->tintslot = -1;
+    cfg->inject_cmd = -1; cfg->inject_arg = 0; cfg->inject_at = 0;
     cfg->bankwr = 1; cfg->hw_idx = -1; cfg->voice_data_button = 0;
     cfg->boot_cycles = 900000000L;
     cfg->setup_cycles = 150000000L;
@@ -396,7 +377,7 @@ int config_load(Config *cfg, const char *path, char *err, size_t errlen)
             cfg->cfg_dir[n] = '\0';
         }
         /* A file `profile` key different from the one used for defaults
-         * (e.g. file says sv25 while env said id20_403) re-resolves: the
+         * (e.g. file says sv25 while env said another profile) re-resolves: the
          * file wins, so redo defaults from the file's profile. */
         const Profile *fp = NULL;
         if ((v = kv_get(&kv, "profile")))
@@ -426,7 +407,7 @@ int config_load(Config *cfg, const char *path, char *err, size_t errlen)
         "int23", "ac01_filt", "ac01_lat", "cmd_ovr", "ac01_clamp", "p51div",
         "cpu_scale", "ud_trap", "delay_samples", "dial_dwell", "ring_on",
         "ring_period", "cpu_model", "cpu_hz", "dsp_hz", "patch_crc",
-        "nvram_mode", "fax_patch", "cmpr", "tintslot", "dsp_rom", "bankwr",
+        "nvram_mode", "fax_patch", "cmpr", "tintslot", "inject_cmd", "inject_arg", "inject_at", "dsp_rom", "bankwr",
         "hw_idx", "voice_data_button", "boot_cycles", "setup_cycles",
         "xmd", "decode", NULL
     };

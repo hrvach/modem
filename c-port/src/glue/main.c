@@ -268,8 +268,25 @@ int main(int argc, char **argv)
     }
 
     int64_t target_samples = (int64_t)(cfg.duration_seconds * LINK_FS);
+    int injected = 0;
     while (link_samples(l) < target_samples) {
+        if (!injected && cfg.inject_cmd >= 0 &&
+            link_samples(l) >= (int64_t)(cfg.inject_at * LINK_FS)) {
+            /* Test hook: a host->DSP command posted to both modems (config inject_cmd). */
+            machine_host_cmd(l->a, cfg.inject_cmd, cfg.inject_arg);
+            machine_host_cmd(l->b, cfg.inject_cmd, cfg.inject_arg);
+            injected = 1;
+        }
         link_run(l, 10000000);
+        { /* diagnostic: SEQ_A / SEQ_B = "sec=text;sec=text" (\r allowed): timed host commands sent at link time */
+            static int seq_init, seq_n[2], seq_i[2]; static double seq_t[2][16]; static char seq_s[2][16][128];
+            if (!seq_init) { seq_init = 1; for (int sd = 0; sd < 2; sd++) { const char *e = getenv(sd ? "SEQ_B" : "SEQ_A"); if (!e) continue; char buf[1024]; snprintf(buf, sizeof buf, "%s", e);
+                for (char *tok = strtok(buf, ";"); tok && seq_n[sd] < 16; tok = strtok(NULL, ";")) { char *eq = strchr(tok, '='); if (!eq) continue; *eq = 0; seq_t[sd][seq_n[sd]] = atof(tok); char *o = seq_s[sd][seq_n[sd]]; for (char *q = eq + 1; *q && o < seq_s[sd][seq_n[sd]] + 126; q++) { if (q[0] == '\\' && q[1] == 'r') { *o++ = '\r'; q++; } else *o++ = *q; } *o = 0; seq_n[sd]++; } } }
+            for (int sd = 0; sd < 2; sd++) while (seq_i[sd] < seq_n[sd] && (double)link_samples(l) / LINK_FS >= seq_t[sd][seq_i[sd]]) { link_send(l, sd, (const uint8_t *)seq_s[sd][seq_i[sd]], strlen(seq_s[sd][seq_i[sd]])); seq_i[sd]++; }
+        }
+        if (getenv("HITS_AT_CONNECT")) { /* diagnostic: clear the DSP per-PC / per-address counters when A reports CONNECT */
+            static int cleared; if (!cleared && l->txt_a_n && memmem(l->txt_a, l->txt_a_n, "CONNECT", 7)) { cleared = 1; c5x_pc_hits_clear(l->a->dsp); c5x_pc_hits_clear(l->b->dsp); fprintf(stderr, "HITS cleared at CONNECT, sim t=%.3f\n", (double)link_samples(l) / LINK_FS); }
+        }
         if (payload && !payload_sent && l->txt_b_n &&
             memmem(l->txt_b, l->txt_b_n, "CONNECT", 7)) {
             /* Caller (B) payload, once B reports CONNECT. */
@@ -283,7 +300,7 @@ int main(int argc, char **argv)
             payload_a_sent = 1;
         }
         /* Stop as soon as each side has the other side's message. */
-        if (payload_sent && payload_a_sent &&
+        if (!getenv("NOSTOP") && payload_sent && payload_a_sent &&
             memmem(l->txt_a, l->txt_a_n, cfg.send_text, strlen(cfg.send_text)) &&
             memmem(l->txt_b, l->txt_b_n, cfg.send_text_a, strlen(cfg.send_text_a)))
             break;
@@ -403,6 +420,8 @@ int main(int argc, char **argv)
     printf("wrote %s (%zu/%zu samples A/B), %s, %s\n", wav_path,
            l->audio_a_n, l->audio_b_n, log_path, tr_path);
     printf("wall time: %ld s\n", wall);
+    printf("d2h overwrites before read: A %llu, B %llu\n",
+           (unsigned long long)l->a->d2h_overwrites, (unsigned long long)l->b->d2h_overwrites);
     link_free(l);
     return 0;
 }
