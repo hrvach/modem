@@ -1,0 +1,41 @@
+--- a/slmodemd/modem_main.c
++++ b/slmodemd/modem_main.c
+@@ -635,7 +635,9 @@
+ 		char str[16];
+ 		snprintf(str,sizeof(str),"%d",sockets[0]);
+ 		close(sockets[1]);
+-		execl(modem_exec,modem_exec,m->dial_string,str,NULL);
++		execl(modem_exec,modem_exec,m->dial_string ? m->dial_string : "",str,NULL);   /* ATA has no dial string: a NULL here would end the argument list early */
++		ERR("execl %s failed: %s\n", modem_exec, strerror(errno));   /* execl only returns on failure: do not go on as a second slmodemd */
++		_exit(1);
+ 	} else {
+ 		close(sockets[0]);
+ 		dev->fd = sockets[1];
+@@ -1114,6 +1116,8 @@
+ 	signal(SIGTERM, mark_termination);
+ 
+ #ifdef SLMODEMD_USER
++	if (getuid() != 0)   /* not started as root: there are no privileges to drop (and no setuid to nobody to make) */
++		goto privs_done;
+ 	if (need_realtime) {
+ 		struct rlimit limit;
+ 		if (getrlimit(RLIMIT_MEMLOCK, &limit)) {
+@@ -1151,6 +1155,7 @@
+ 	}
+ 	DBG("dropped privileges to %ld.%ld\n",
+ 	    (long)pwd->pw_gid,(long)pwd->pw_uid);
++privs_done: ;
+ #endif
+ 
+ 	INFO("Use `%s' as modem device, Ctrl+C for termination.\n",
+--- a/slmodemd/modem_cmdline.c
++++ b/slmodemd/modem_cmdline.c
+@@ -125,7 +125,7 @@
+ 	{'s',"shortbuffer","use short buffer (4 periods length)"},
+ 	{'d',"debug","debug level (developers only, for ./sl...)",OPTIONAL,INTEGER,"0"},
+ 	{'l',"log","logging mode",OPTIONAL,INTEGER,"5"},
+-	{'e',"exec","path to external application that transmits audio over the socket (required)"},
++	{'e',"exec","path to external application that transmits audio over the socket (required)",MANDATORY,STRING},
+ 	{}
+ };
+ 

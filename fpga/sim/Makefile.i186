@@ -1,0 +1,93 @@
+# Makefile.i186 -- 80C186EB system wrapper + top + co-sim harness.
+# Worker 7's targets. Kept separate from sim/Makefile (worker 5's DSP
+# Makefile, actively edited) to avoid conflicting with it.
+#
+# Targets:
+#   lint-i186        verilator --lint-only -Wall on i186_top (real core)
+#   sim-unit-i186    build + run tb/tb_i186_sys.sv (232 directed +
+#                    random differential checks)
+#   cosim-i186       build the C-vs-RTL harness and run it on the
+#                    real SV25 firmware (default 200000 instructions;
+#                    pass N=<n> and C_DIR=<dir> to override)
+#   synth-i186       Yosys synth_intel_alm -top i186_top -family cyclonev
+#   clean-i186       remove the i186 build products
+#
+# Toolchain: Verilator 5.020, Yosys 0.33 (see goal GOAL.md).
+# The co-sim links the C i186.c core, compiled with gcc (C, not C++):
+# i186.c uses C idioms (calloc without casts) that do not compile as
+# C++. The .o is passed to Verilator, which links it into the exe.
+# The core's verilator-public signals (gpr/sreg/ip/flags/cycles) are
+# read by the harness, so the build uses --public-flat-rw.
+# The module testbench uses --binary (it has its own SystemVerilog
+# top and no C++ main); the co-sim uses --cc/--exe with our own main.
+
+GOAL_DIR := $(CURDIR)/..
+RTL_DIR  := $(GOAL_DIR)/rtl
+TB_DIR   := $(GOAL_DIR)/tb
+SIM_DIR  := $(CURDIR)
+C_DIR    := /home/hatch/workspace/research_notes/courier-firmware/c-port/c
+C_CPU_DIR := $(C_DIR)/src/cpu
+
+VERILATOR ?= verilator
+YOSYS     ?= yosys
+CC        ?= gcc
+CXX       ?= g++
+
+BUILD_I186 := $(SIM_DIR)/build/i186
+COSIM_I186_BIN := $(BUILD_I186)/cosim_i186/Vi186_top
+TB_I186_BIN := $(BUILD_I186)/tb_i186_sys/Vtb_i186_sys
+I186_C_OBJ := $(BUILD_I186)/i186_c.o
+SYNTH_I186_LOG := $(SIM_DIR)/synth-i186-cyclonev.log
+
+N ?= 200000
+
+.PHONY: lint-i186 sim-unit-i186 cosim-i186 synth-i186 clean-i186 help-i186
+
+help-i186:
+	@echo "targets: lint-i186 sim-unit-i186 cosim-i186 synth-i186 clean-i186"
+	@echo "  cosim-i186: N=<instructions> (default 200000), C_DIR=<c-port/c dir>"
+
+lint-i186:
+	$(VERILATOR) --lint-only -Wall --top-module i186_top \
+	    $(RTL_DIR)/i186_top.sv $(RTL_DIR)/i186_sys.sv $(RTL_DIR)/i186_core.sv
+
+$(I186_C_OBJ): $(C_CPU_DIR)/i186.c $(C_CPU_DIR)/i186.h
+	@mkdir -p $(dir $@)
+	$(CC) -O2 -c $(C_CPU_DIR)/i186.c -o $@
+
+$(COSIM_I186_BIN): $(SIM_DIR)/i186_cosim.cpp $(SIM_DIR)/i186_ref.cpp \
+	    $(SIM_DIR)/i186_ref.h $(I186_C_OBJ) \
+	    $(RTL_DIR)/i186_top.sv $(RTL_DIR)/i186_sys.sv $(RTL_DIR)/i186_core.sv
+	$(VERILATOR) --cc --exe --public-flat-rw -j 4 \
+	    --Mdir $(BUILD_I186)/cosim_i186 --top-module i186_top \
+	    $(RTL_DIR)/i186_top.sv $(RTL_DIR)/i186_sys.sv $(RTL_DIR)/i186_core.sv \
+	    $(SIM_DIR)/i186_cosim.cpp $(SIM_DIR)/i186_ref.cpp $(I186_C_OBJ) \
+	    -CFLAGS "-I$(SIM_DIR) -I$(C_CPU_DIR)" \
+	    --exe --build -o Vi186_top
+
+cosim-i186: $(COSIM_I186_BIN)
+	$(COSIM_I186_BIN) $(C_DIR) $(N)
+
+$(TB_I186_BIN): $(RTL_DIR)/i186_sys.sv $(TB_DIR)/tb_i186_sys.sv
+	$(VERILATOR) --binary --timing -j 4 \
+	    --Mdir $(BUILD_I186)/tb_i186_sys --top-module tb_i186_sys \
+	    $(RTL_DIR)/i186_sys.sv $(TB_DIR)/tb_i186_sys.sv
+
+sim-unit-i186: $(TB_I186_BIN)
+	$(TB_I186_BIN)
+
+synth-i186:
+	@echo "== synth-i186: synth_intel_alm -top i186_top -family cyclonev =="
+	$(YOSYS) -Q -T -l $(SYNTH_I186_LOG) -p \
+	    "read_verilog -sv $(RTL_DIR)/i186_top.sv $(RTL_DIR)/i186_sys.sv $(RTL_DIR)/i186_core.sv; \
+	     synth_intel_alm -top i186_top -family cyclonev; \
+	     stat"
+	@echo "== stat summary (final cell table) =="
+	@grep -E '^[[:space:]]+(MISTRAL_[A-Z0-9_]+|ALM|DSP|\$$[^ ]+)[[:space:]]+[0-9]+' $(SYNTH_I186_LOG) | tail -20
+	@echo "== M10K / mem_v2 check =="
+	@M10K=$$(grep -E '^[[:space:]]+MISTRAL_M10K[[:space:]]+[0-9]+' $(SYNTH_I186_LOG) | tail -1 | awk '{print $$2+0}'); \
+	MEMV2=$$(grep -E '^[[:space:]]+\\$$mem_v2[[:space:]]+[0-9]+' $(SYNTH_I186_LOG) | tail -1 | awk '{print $$2+0}'); \
+	echo "MISTRAL_M10K cells: $$M10K   mem_v2 cells: $$MEMV2 (see $(SYNTH_I186_LOG))"
+
+clean-i186:
+	rm -rf $(BUILD_I186) $(SYNTH_I186_LOG)

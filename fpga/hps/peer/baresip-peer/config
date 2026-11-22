@@ -1,0 +1,21 @@
+# baresip configuration for the modem line (static build: modules are named, not loaded from files). Copy to <baresip-dir>/config; the trunk account goes to <baresip-dir>/accounts.
+# G.711 only and nothing between the audio and the line: a modem signal must pass untouched.
+sip_listen              0.0.0.0:5060
+audio_player            modemline,line
+audio_source            modemline,line
+audio_alert             modemline,line
+audio_path              /media/fat/modem
+call_max_calls          1
+audio_buffer            40-120
+rtp_stats               yes
+sip_trace               yes
+sip_cafile              /etc/ssl/certs/cacert.pem
+sip_verify_server       yes
+ctrl_tcp_listen         127.0.0.1:4444
+
+module                  g711.so
+module                  srtp.so          # before account.so: the account names its media encryption when it is loaded
+module                  account.so
+module                  ctrl_tcp.so
+module                  modemline.so
+module_app              menu.so

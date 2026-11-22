@@ -1,0 +1,15 @@
+# smoke.hex -- minimal hand-written program image, loaded at 0x8000.
+# One 16-bit word per line (hex, # = comment). Used by `make smoke`
+# and `cosim --smoke`.
+#
+#   0x8000  BC00  LDP #0        DP = 0
+#   0x8001  B934  LACK #0x34    ACC = 0x34
+#   0x8002  9060  SACL 0x60     dm[0x60] = ACC low (direct, DP=0;
+#                             B2 RAM -- NOT an MMR, so no mmr_bus
+#                             wait state; 0x20 would be DRR and the
+#                             C model would charge +1 cycle)
+#   0x8003  B900  LACK #0       ACC = 0
+BC00
+B934
+9060
+B900

@@ -1,0 +1,63 @@
+--- a/d-modem.c
++++ b/d-modem.c	2026-11-22 01:38:35.406461985 +0100
+@@ -101,6 +101,14 @@
+ 	}
+ }
+ 
++
++/* Answer mode (started by ATA: the dial string is empty): there is no outgoing call, an incoming one is answered at once. The soft modem is
++   already off hook sending its answer tone, so the caller hears it from the first packet. */
++static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_rx_data *rdata) {
++	(void)acc_id; (void)rdata;
++	pjsua_call_answer(call_id, 200, NULL, NULL);
++}
++
+ /* Callback called by the library when call's media state has changed */
+ static void on_call_media_state(pjsua_call_id call_id) {
+ 	pjsua_call_info ci;
+@@ -135,7 +143,12 @@
+ 
+ 	char *dialstr = argv[1];
+ 
++	int answer_mode = (dialstr[0] == '\0');
++	char dummy_login[] = "answer:answer@localhost";
+ 	char *sip_user = getenv("SIP_LOGIN");
++	if (answer_mode && !sip_user) {
++		sip_user = dummy_login;   /* no registration is made: the account only exists to take the call */
++	}
+ 	if (!sip_user) {
+ 		return -1;
+ 	}
+@@ -162,6 +175,7 @@
+ 		pjsua_config_default(&cfg);
+ 		cfg.cb.on_call_media_state = &on_call_media_state;
+ 		cfg.cb.on_call_state = &on_call_state;
++		cfg.cb.on_incoming_call = &on_incoming_call;
+ 
+ 		pjsua_logging_config_default(&log_cfg);
+ 		log_cfg.console_level = 4;
+@@ -245,13 +259,17 @@
+ 		if (status != PJ_SUCCESS) error_exit("Error adding account", status);
+ 	}
+ 
+-	snprintf(buf,sizeof(buf),"sip:%s@%s",dialstr,sip_domain);
+-	printf("calling %s\n",buf);
+-	pj_str_t uri = pj_str(buf);
+-	
+-	pjsua_call_id callid;
+-	status = pjsua_call_make_call(acc_id, &uri, 0, NULL, NULL, &callid);
+-	if (status != PJ_SUCCESS) error_exit("Error making call", status);
++	if (answer_mode) {
++		printf("answer mode: waiting for a call on UDP 5060\n");
++	} else {
++		snprintf(buf,sizeof(buf),"sip:%s@%s",dialstr,sip_domain);
++		printf("calling %s\n",buf);
++		pj_str_t uri = pj_str(buf);
++
++		pjsua_call_id callid;
++		status = pjsua_call_make_call(acc_id, &uri, 0, NULL, NULL, &callid);
++		if (status != PJ_SUCCESS) error_exit("Error making call", status);
++	}
+ 
+ 	struct timespec ts = {100, 0};
+ 	while(1) {

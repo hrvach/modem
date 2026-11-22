@@ -1,0 +1,2 @@
+# ~/.baresip/accounts: one line per trunk account. G.711 only, no SRTP (a modem signal needs plain RTP), no 100rel / no audio codecs other than pcmu/pcma.
+# <sip:USER@DOMAIN;transport=udp>;auth_pass=PASSWORD;audio_codecs=pcmu,pcma;regint=300;answermode=manual

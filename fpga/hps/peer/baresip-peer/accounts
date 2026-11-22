@@ -1,0 +1,2 @@
+# test peer (D-Modem on the builder): plain UDP, plain RTP, no registration. The Twilio account lives in ../baresip-cfg and is never touched by this.
+<sip:modem@79.137.67.20;transport=udp>;audio_codecs=pcmu,pcma;regint=0

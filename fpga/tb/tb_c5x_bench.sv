@@ -1,0 +1,96 @@
+/* DSP core benchmark / lock-step trace: runs dsp_base.bin (the SV25 DSP image, loaded at 0x8000) on the bare core with an interrupt every INT_EVERY retired instructions and
+   pseudo-random I/O read data; prints clocks per model cycle at the end and, with +trace=<n>, one line of architectural state per retired instruction (the golden trace the faster core
+   is compared with). Build: tests/Makefile t_c5x_bench. */
+`default_nettype none
+`timescale 1ns/1ps
+module tb_c5x_bench;
+  logic clk = 0, rst_n = 0;
+  logic [8:0] irq = 0;
+  logic load_en = 0, ser_tick = 0;
+  logic [15:0] load_addr = 0, load_data = 0;
+  logic io_req, io_rd;
+  logic [15:0] io_port, io_wdata, io_rdata;
+  logic instr_done, idle;
+  logic [63:0] cycles;
+  logic [15:0] pc, op, st0, st1, pmst, ar_cur, sp;
+  logic [31:0] acc, accb;
+  logic [2:0] arp;
+  logic [15:0] ifr;
+  always #5 clk = ~clk;
+
+  c5x_core #(.RESET_PC(16'h8000), .EXT_PMEM(1'b0)) dut (
+    .clk(clk), .ce_i(1'b1), .rst_n(rst_n),
+    .xm_rd_en_o(), .xm_raddr_o(), .xm_wr_en_o(), .xm_waddr_o(), .xm_wdata_o(), .xm_rdata_i(16'h0000),
+    .step_i(1'b1), .irq_i(irq), .bio_i(1'b0), .ivec_ind_i({16'h0068, 16'h0067, 16'h0066, 16'h0065, 16'h0064, 16'h0063, 16'h0062, 16'h0061, 16'h0060}), .ser_tick(ser_tick), .ser_rx(16'h0123), .xint_mode(1'b1),
+    .io_req(io_req), .io_rd(io_rd), .io_port(io_port), .io_wdata(io_wdata), .io_rdata(io_rdata), .io_ack(io_ack_w),
+    .load_en(load_en), .load_pmem(1'b1), .load_addr(load_addr), .load_data(load_data),
+    .dbg_en(1'b0), .dbg_addr(16'h0), .dbg_rdata(), .dbg_done(),
+    .dxr_wr(), .dxr_wdata(), .timer_exp_cnt_o(), .mem_wr_pulse(), .mem_wr_pmem(), .mem_wr_addr(), .mem_wr_data(),
+    .instr_done(instr_done), .cycles_o(cycles), .pc_o(pc), .op_o(op), .acc_o(acc), .accb_o(accb), .preg_o(), .treg0_o(), .treg1_o(), .treg2_o(), .ar_cur_o(ar_cur), .arp_o(arp), .st0_o(st0), .st1_o(st1), .pmst_o(pmst),
+    .rptc_o(), .brcr_o(), .pasr_o(), .paer_o(), .bmar_o(), .dbmr_o(), .indx_o(), .arcr_o(), .sp_o(sp), .stack_top_o(), .ar_all_o(), .stack_all_o(), .ifr_o(ifr), .imr_o(), .idle_o(idle));
+
+  logic [15:0] image [0:65535];
+  integer sth [0:31];
+  integer si;
+  logic [15:0] ifr_prev;
+  integer ph [0:3];
+  integer rph [0:15];
+  integer nint = 0;
+  initial begin for (si=0; si<4; si=si+1) ph[si]=0; for (si=0; si<16; si=si+1) rph[si]=0; end
+  integer n, ninstr = 0, nclk = 0, idleclk = 0, trace = 0, every = 400, maxclk = 3000000;
+  logic [31:0] lfsr = 32'hACE1ACE1;
+  assign io_rdata = lfsr[15:0];
+  /* +iod=N: slow-acknowledge I/O model like the DSP clock-domain crossing (request seen once, answered N clocks later, ack held until io_req drops); counts requests that start with no idle gap */
+  integer iod = 0, b2b = 0, nio = 0, gapclk = 0;
+  logic io_seen = 0, io_busy = 0, io_ack_q = 0;
+  integer iocnt = 0;
+  logic io_ack_w;
+  assign io_ack_w = (iod == 0) ? 1'b1 : io_ack_q;
+  always @(posedge clk) if (iod != 0) begin
+    if (!io_req) begin io_seen <= 0; io_busy <= 0; io_ack_q <= 0; end
+    else if (!io_seen) begin
+      io_seen <= 1; io_busy <= 1; iocnt <= 0; nio <= nio + 1;
+      if (io_ack_q) b2b <= b2b + 1;
+    end else if (io_busy) begin
+      iocnt <= iocnt + 1;
+      if (iocnt + 1 >= iod) begin io_ack_q <= 1; io_busy <= 0; end
+    end
+  end
+  always @(posedge clk) lfsr <= {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
+  initial begin
+    if ($value$plusargs("trace=%d", trace)) ;
+    if ($value$plusargs("every=%d", every)) ;
+    if ($value$plusargs("iod=%d", iod)) ;
+    if ($value$plusargs("clocks=%d", maxclk)) ;
+    for (si = 0; si < 32; si = si + 1) sth[si] = 0;
+    $readmemh("../tb/smoke/dsp_base.hex", image);
+    repeat (4) @(posedge clk);
+    for (n = 0; n < 16384; n = n + 1) begin @(negedge clk); load_en = 1; load_addr = 16'h8000 + n[15:0]; load_data = image[n]; end
+    @(negedge clk); load_en = 0;
+    rst_n = 1;
+  end
+  always @(posedge clk) if (rst_n) begin
+    nclk <= nclk + 1;
+    if (idle) idleclk <= idleclk + 1;
+    sth[dut.u_ctrl.state_q] <= sth[dut.u_ctrl.state_q] + 1;
+    if (dut.u_ctrl.state_q == 12) begin ph[dut.u_ctrl.int_ph_q] <= ph[dut.u_ctrl.int_ph_q] + 1; if (dut.u_ctrl.int_ph_q == 0) begin nint <= nint + 1; if (nint > 100 && nint < 112) $display("ENTRY n=%0d idx=%0d ifr=%h imr=%h pc=%h ind=%h", nint, dut.u_ctrl.int_idx_q, dut.ifr_o, dut.imr_o, dut.u_ctrl.pc_q, dut.u_ctrl.int_ind_addr_w); end end
+    if (nint > 100 && nint < 104 && (dut.u_ctrl.irq_ack_o != 0 || dut.ifr_o != ifr_prev)) $display("clk %0d st=%0d ack=%h ifr=%h irq_set=%h", nclk, dut.u_ctrl.state_q, dut.u_ctrl.irq_ack_o, dut.ifr_o, dut.irq_set);
+    ifr_prev <= dut.ifr_o;
+    if (dut.u_ctrl.state_q == 16) rph[dut.u_ctrl.rst_ph_q] <= rph[dut.u_ctrl.rst_ph_q] + 1;
+    irq <= 0; ser_tick <= 0;
+    if (instr_done) begin
+      ninstr <= ninstr + 1;
+      if (trace != 0) $display("T %0d %0d pc=%h op=%h acc=%h accb=%h st0=%h st1=%h pm=%h ar=%h arp=%0d sp=%h ifr=%h", ninstr, cycles, pc, op, acc, accb, st0, st1, pmst, ar_cur, arp, sp, ifr);
+      if (ninstr % every == every - 1) begin irq[2] <= 1; ser_tick <= 1; end
+    end
+    if (nclk == maxclk) begin
+      $display("BENCH clocks=%0d instr=%0d model_cycles=%0d idle_clocks=%0d  clk/cycle=%0d.%02d clk/instr=%0d.%02d", nclk, ninstr, cycles, idleclk,
+               nclk / (cycles == 0 ? 1 : cycles), (nclk * 100 / (cycles == 0 ? 1 : cycles)) % 100, nclk / (ninstr == 0 ? 1 : ninstr), (nclk * 100 / (ninstr == 0 ? 1 : ninstr)) % 100);
+      for (si = 0; si < 17; si = si + 1) if (sth[si] != 0) $display("STATE %0d clocks %0d", si, sth[si]);
+      $display("IO requests %0d back-to-back %0d", nio, b2b);
+      $display("INTPH %0d %0d %0d %0d  entries(ph0 clocks)=%0d", ph[0], ph[1], ph[2], ph[3], nint);
+      for (si = 0; si < 10; si = si + 1) $display("RESTPH %0d clocks %0d", si, rph[si]);
+      $finish;
+    end
+  end
+endmodule
