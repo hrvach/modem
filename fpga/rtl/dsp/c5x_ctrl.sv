@@ -294,6 +294,7 @@ module c5x_pipe_ctrl #(
     output logic [31:0] mtime_o, /* DSP model time: timer ticks delivered, plus one per IDLE2 clock (the codec frame schedule runs on this, not on wall clocks) */
     output logic        model_tick_o, /* one DSP timer tick: the model cycles charged at retire (and one per IDLE clock) are queued and drained at one per clock */
     output logic        halted_o,
+    output logic [31:0] halt_info_o,   /* {PC, opcode} of the instruction that halted the core (BADOP) */
     output logic [63:0] cnt_stall_branch_o,
     output logic [63:0] cnt_stall_2word_o,
     output logic [63:0] cnt_stall_pmem_op_o,
@@ -380,6 +381,7 @@ module c5x_pipe_ctrl #(
     logic [15:0] retire_pc_q;
     logic [15:0] retire_op_q;
     logic        halted_q;
+    logic [31:0] halt_info_q;
     logic [1:0]  idle_q; /* 0 = running, 1 = IDLE, 2 = IDLE2 */
     logic        int_inh_q; /* EINT one-cycle interrupt inhibit */
     logic        xc_new_q; /* XC window: hold the next check */
@@ -3235,7 +3237,9 @@ module c5x_pipe_ctrl #(
                         (re_i.is_delayed && ex_ds_take && !slot_done_w) ||
                         (ds_in_slot_q && !slot_done_w) ||
                         /* C: RPT and the repeated instruction run all their iterations as one step (the while (rptc > -1) loop), the interrupt check follows it: no entry between iterations. rpt_rewind_w = an iteration retires and repeats remain. */
-                        rpt_rewind_w;
+                        rpt_rewind_w ||
+                        /* C: the RPT instruction and its repeated instruction are one step, so no entry at the RPT's own retire either (the entry would run the handler between the two with rptc still set: the handler's SAR then reads the replay AR, and RETE resumes into a half-armed repeat) */
+                        (re_i.valid && re_i.dec.is_rpt);
     /* The instruction would retire this clock (ignoring the
        entry, which preempts it); the entry decision uses this so
        there is no combinational loop through e_hold_w. */
@@ -3419,8 +3423,9 @@ module c5x_pipe_ctrl #(
         end else if (entry_is_intr_q) begin
             /* latched with the entry: the vector is used two clocks after the INTR retired, when the live entry_is_intr_w / entry_idx_w describe whatever retires now (vector 0) */
             entry_vec_w = {10'b0, entry_idx_q, 1'b0};
-        end else if (int_sel_found_w) begin
-            entry_vec_w = {stat_iptr, 3'b000, c5x_ivec(int_sel_w)};
+        end else if (entry_pend2_q && (entry_idx_q <= 5'd8)) begin
+            /* Hardware interrupt selection was latched when the entry was detected; IFR may change before the vector is consumed. */
+            entry_vec_w = {stat_iptr, 3'b000, c5x_ivec(entry_idx_q[3:0])};
         end
     end
 
@@ -3912,7 +3917,7 @@ module c5x_pipe_ctrl #(
             retire_is_intr_q <= 1'b0;
             retire_pc_q <= RESET_PC;
             retire_op_q <= 16'd0;
-            halted_q <= 1'b0;
+            halted_q <= 1'b0; halt_info_q <= 32'd0;
             idle_q <= 2'd0;
             int_inh_q <= 1'b0;
             xc_new_q <= 1'b0;
@@ -4046,6 +4051,7 @@ module c5x_pipe_ctrl #(
             if (re_i.valid && re_i.dec.badop && !e_hold_mem_w &&
                 !entry_active_q && !restore_active_q) begin
                 halted_q <= 1'b1;
+                if (!halted_q) halt_info_q <= {re_i.pc, re_i.op};
                 if (ds_in_slot_q)
                     fetch_pc_q <= ds_ppc_q[0];
             end
@@ -4390,6 +4396,7 @@ module c5x_pipe_ctrl #(
     assign retire_pc_o = retire_pc_q;
     assign retire_op_o = retire_op_q;
     assign halted_o = halted_q;
+    assign halt_info_o = halt_info_q;
     assign idle_o = (idle_q != 2'd0);
     assign idle2_o = (idle_q == 2'd2);
     /* model-cycle timer: ticks are queued at retire (charge) and per IDLE clock (not in IDLE2: the timer is stopped there) and drained one per clock */

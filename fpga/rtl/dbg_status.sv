@@ -43,12 +43,13 @@ module dbg_status #(
     input  logic [15:0] duty_i,
     input  logic [15:0] dxrc_i,                     /* DXR writes of the DSP */
     input  logic [15:0] dacc_i,                     /* DAC samples produced */
+    input  logic [31:0] halt_i,                     /* PC and opcode of the BADOP that halted the DSP */
     input  logic [63:0] dspg_i,                     /* DSP interrupt state: {ST0, IMR, PMST, rptc[7:0], halted, idle, sp} */
     input  logic [15:0] peak_i,                     /* peak |DAC sample| of the last window */                     /* 186 enabled share of clk_cpu (0xFFFF = 100 %) */                   /* codec frames */
     input  logic [37:0] tr_data_i,                  /* {wr, word, addr[19:0], data[15:0]} */
     output logic        tx_o
 );
-    localparam integer LEN = 168;                    /* the status line plus CR LF: 76 characters, indexes 0..75 */
+    localparam integer LEN = 179;                    /* the status line plus CR LF: 76 characters, indexes 0..75 */
 
     logic [6:0]  s1_q, s2_q;
     logic [19:0] a_q;
@@ -58,6 +59,7 @@ module dbg_status #(
     logic [27:0] icu_q;
     logic [15:0] i0_q, te_q, fr_q, rx_q, tx_q, du_q, dx_q, dc_q, pk_q;
     logic [63:0] g_q;
+    logic [31:0] h_q;
     logic        dump_q;
     logic [4:0]  didx_q;
     logic [7:0]  dch;
@@ -248,8 +250,19 @@ module dbg_status #(
             8'd162:  ch = hx(g_q[11:8]);
             8'd163:  ch = hx(g_q[7:4]);
             8'd164:  ch = hx(g_q[3:0]);
-            8'd165:  ch = "]";
-            8'd166:  ch = 8'h0D;
+            8'd165:  ch = " ";
+            8'd166:  ch = "H";
+            8'd167:  ch = "=";
+            8'd168:  ch = hx(h_q[31:28]);
+            8'd169:  ch = hx(h_q[27:24]);
+            8'd170:  ch = hx(h_q[23:20]);
+            8'd171:  ch = hx(h_q[19:16]);
+            8'd172:  ch = hx(h_q[15:12]);
+            8'd173:  ch = hx(h_q[11:8]);
+            8'd174:  ch = hx(h_q[7:4]);
+            8'd175:  ch = hx(h_q[3:0]);
+            8'd176:  ch = "]";
+            8'd177:  ch = 8'h0D;
             default: ch = 8'h0A;
         endcase
     end
@@ -300,6 +313,7 @@ module dbg_status #(
             dc_q <= dacc_i;
             pk_q <= peak_i;
             g_q  <= dspg_i;
+            h_q  <= halt_i;
             jl_q <= jlat_i;
             jf_q <= jfrom_i;
             jt_q <= jto_i;
@@ -394,6 +408,7 @@ module dbg_status #(
         dc_q     = 16'd0;
         pk_q     = 16'd0;
         g_q      = 64'd0;
+        h_q      = 32'd0;
         dump_q   = 1'b0;
         didx_q   = 5'd0;
         tr_idx_o = 6'd0;

@@ -259,6 +259,7 @@ module c5x_core #(
     output logic [15:0]  imr_o,
     output logic         idle_o,
     output logic         halted_o,
+    output logic [31:0]  halt_info_o,
 
     /* Memory-owned registers, captured by the debug sequencer.
        After reset they hold the C reset values; the harness
@@ -1859,6 +1860,7 @@ module c5x_core #(
         .model_tick_o   (ctrl_model_tick),
         .mtime_o        (mtime_o),
         .halted_o       (ctrl_halted),
+        .halt_info_o    (halt_info_o),
         .cnt_stall_branch_o (ctrl_cnt_stall_branch),
         .cnt_stall_2word_o (ctrl_cnt_stall_2word),
         .cnt_stall_pmem_op_o (ctrl_cnt_stall_pmem_op),

@@ -17,7 +17,7 @@ Restores must keep the DSP fetch held until reset settles and must re-deposit th
 
 - **MAC/MADS program operand ignored CNF/RAM mapping** — `rtl/dsp/c5x_mem.sv`, r2 read port (`pmem2_rdata_q`). With CNFP the program range
   0xFE00..0xFFFF is B0 (data 0x100..0x2FF), with RAM 0x2000..0x23FF is SARAM (data 0x800..0xBFF); the r2 port read only the PMEM copy and
-  returned 0. The firmware's ANSam/CM demodulator (code 0xABF9..0xAC08, `MAC 0xFE34,*-` -> data 0x300) therefore produced 0 and the modem never
+  returned 0. The firmware's ANSam/CM demodulator in the *base* DSP image (code 0xABF9..0xAC08 -- in overlay 6 this range is `per_sample_filter2_ABBB` and 0xABFE is `MPYI *0+`, so the call5 trace does not show this bug active; `MAC 0xFE34,*-` -> data 0x300) therefore produced 0 and the modem never
   sent V.8 CM. Fix: `shadow_b0` / `shadow_sa` arrays written alongside DMEM, selected by `r2_sel_q`. Found by diffing C vs RTL DSP data memory
   at the same input sample (first divergence 0x300, `P=0` in the MAC loop). The 669 vectors did not cover it.
 - **Interrupt entry inside a repeat** — `rtl/dsp/c5x_ctrl.sv` `int_held_w`: hold at `rpt_rewind_w` and at retire of RPT/RPTK/RPT#lk/RPTZ (C gates on rptc<=0).

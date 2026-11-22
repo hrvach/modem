@@ -114,6 +114,7 @@ module modem_core (
     output logic [15:0] dbg_dxrc_o,          /* bring-up: DXR writes of the DSP, DAC samples the codec model produced, peak |DAC sample| since the last frame of 2^22 clocks */
     output logic [15:0] dbg_dacc_o,
     output logic [15:0] dbg_peak_o,
+    output logic [31:0] dbg_halt_o,          /* PC and opcode of the BADOP that halted the DSP (heartbeat H=) */
     output logic [63:0] dbg_dspg_o          /* DSP interrupt state for the heartbeat (G=): {ST0, IMR, PMST, rptc[7:0], halted, idle, sp} */
 );
     /* ---- reset: synchronised, held while the PLL is unlocked, the SDRAM is not ready or a file is loading */
@@ -597,6 +598,7 @@ module modem_core (
         .rptc_o          (dsp_g_rptc),
         .sp_o            (dsp_g_sp),
         .halted_o        (dsp_g_halt),
+        .halt_info_o     (dbg_halt_o),
         .obs_spc_o       (dbg_spc_o),
         .op_o            (dsp_op),
         .pc_o            (pcdsp_o),

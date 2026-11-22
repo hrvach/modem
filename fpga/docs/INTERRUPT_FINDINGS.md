@@ -103,3 +103,34 @@ The bundle's .so files are x86-64 (this machine is aarch64) and test an older ta
 - 30 (LDP *,ARn drops the ARP switch): reproduced, fixed (c5x_ctrl.sv, `st0_ld_data_o` folds in `desc.new_arp`), test `ldp_keeps_its_arp_switch`.
 - 31 (OPL/XPL/APL to an I/O address writes nothing) and 32 (IN to an I/O destination): reproduced (C logs 1 I/O write, the RTL 0). Cause: the memory block performs one I/O transaction per instruction (the read), the second (the write) is dropped. Not fixed: the firmware contains no OPL/XPL/APL and no IN. Known-issue tests.
 - 33 (LMMR into RPTC hangs; same as the earlier bug 22): reproduced, not fixed (no LMMR in the firmware). Known-issue test.
+
+## Bug 34 (hardware): DSP halts on a BADOP after an interrupt preempts a repeated instruction (found 2026-11-22 with the H= heartbeat probe)
+
+**Symptom.** In failing calls the codec frame counter stops after V.8 / during V.34 phase 1-2 while the 186 side keeps running. The heartbeat (build `Modem_20261122v`/`w`) shows the DSP **halted**:
+`G=...` last byte has bit 4 set (halted), and `H=<PC><opcode>` (new, latched at the first BADOP) names the instruction that halted it.
+
+| call | build | halted | PC at halt | notes |
+|---|---|---|---|---|
+| v1 | v (full, with Copilot's preemption fix) | yes | 0x0002 (heartbeat Q), INTM=1 | H= not yet available |
+| w1 | w (dev) | no | - | reached V.34 phase 2, retrained, NO CARRIER |
+| w2 | w | no | - | V8_ANS_TIME_OUT_WAITING_FOR_CM |
+| w3 | w | **yes** | H=017924B1: PC 0x0179, opcode 0x24B1 | wild jump into low memory; INTM=1 |
+
+So the halt is real but intermittent; the call outcome varies with it (V.8 results differ run to run on the same build).
+
+**What precedes it (DDR trace, calls v1 and w3).** The ROM interrupt handler at 0x8189..0x81AA (`... LAMM 0x6B; ORI *+; SAMM 0x21; SAR AR7,0x10; LAR AR7,0x11; SXF; LAMM 0x6B; SUBK #3; BZ; ZAC; SAMM 0x6B; RETE`) was entered while the main code was inside a **single-instruction repeat**:
+- v1: `RPTK #0x0E; NORM *-` (0x8BE8..0x8BE9)
+- w3: `RPTZ #1; SACL *+` (0x9C12..0x9C14)
+
+The trace never shows the handler's `RETE` retiring, and after it the core executes at a wild PC (0x0002 / 0x0179), runs into an invalid opcode and halts (`c5x_ctrl.sv`: `halted_q`, BADOP in E; no instruction fetch from the halted core, so the frame clock stops with it).
+
+**Suspects.** The return address pushed at the interrupt entry when it lands inside a repeat, or the repeat state (RPTC / repeat-pending) not restored by RETE, or a stale PFC/pc after RETE (the area of bugs 8-11 and Copilot's "preemption of higher priority" fix, which does not cover this).
+
+**Not reproduced yet.** A directed test in tests/dsp_regress (the real handler words from the firmware ROM at 0x8189.., interrupt arriving at delays 0..15 in `LRLK AR1; RPTZ #1; SACL *+`) did not even reach the handler, so it proves nothing; the harness needs the interrupt delivered like the AIC does (see tests for bugs 28-33). **Next:** differential test against the C core (scratchpad/courier_copy) for an interrupt at every cycle inside RPTK/RPTZ + NORM/SACL/MAC, compare PC / stack / RPTC after RETE.
+
+**Side note (analysis mismatch found by a second agent).** The `ABF9..AC08 = MAC 0xFE34` attribution in docs/OPS.md describes the base DSP image, not overlay 6: in overlay 6 that range is `per_sample_filter2_ABBB` and 0xABFE is `MPYI *0+`. The call5 trace therefore does not show the MAC-mapping bug active in that call.
+
+### Bug 34 - root cause and fix (2026-11-22)
+Reproduced with a C-vs-RTL sweep (interrupt arriving at every clock; EINT; `LRLK AR1,#0x263; RPTZ #1; SACL *+`; handler `SAR AR7,0x60; RETE`, AR7 = 0x5A5A): the RTL took the entry **between the RPT instruction and the instruction it repeats** (the C core runs RPT plus all iterations as one step, "a single-instruction RPT repeat is not interruptible on the real C5x", so it never does). The handler then ran with `rptc > 0` still set, and `ar_rd_sel_o` (c5x_ctrl.sv, `rptc_i > 0` term) selected the replay AR instead of the SAR field: the handler's `SAR AR7,0x10` stored AR1, its later `LAR AR7,0x11` restored that into AR7 (the frame pointer the firmware keeps in 0BD0..0BDF), and the main code ran off into low memory -> BADOP -> halt -> no more codec frames. That is the AR7-escape the crash trap was built for.
+Fix: `int_held_w` also holds while the RPT instruction itself is in E (`re_i.valid && re_i.dec.is_rpt`), like the EINT/DINT terms. Test: `interrupt_not_between_rpt_and_repeated_insn` (fails on the old RTL, passes now); 669/669 vectors and the 21 regression tests pass.
+The C core's atomic `while (rptc > -1)` loop is a speed trick; what the RTL must keep from it is the *semantics* (no entry at the RPT's retire nor between iterations), not the structure.
