@@ -53,6 +53,8 @@ enum { GLUE_C5X_PC = 0, GLUE_C5X_INT2 = 1, GLUE_C5X_INT3 = 2,
        GLUE_C5X_TRNT = 6, GLUE_C5X_TXNT = 7 };
 I186Cpu *i186_new(void);
 uint8_t *i186_mem(I186Cpu *c);
+uint32_t *i186_ring(I186Cpu *c);
+uint32_t i186_ring_idx(I186Cpu *c);
 int i186_run(I186Cpu *c, uint64_t budget);
 uint32_t i186_get(I186Cpu *c, int id);
 void i186_reset(I186Cpu *c);
@@ -89,6 +91,7 @@ uint64_t c5x_timer_expiries(C5x *c);
 uint64_t c5x_total_cycles(C5x *c);
 uint32_t c5x_watch_hits(C5x *c, uint32_t pc);
 void c5x_set_watch(C5x *c, int32_t a);
+uint16_t c5x_stack_at(C5x *c, int depth);
 uint32_t c5x_pc_hits(C5x *c, uint32_t pc);
 void c5x_pc_hits_clear(C5x *c);
 uint32_t c5x_dm_writes(C5x *c, uint32_t a);
@@ -176,7 +179,9 @@ struct Machine {
     long dsp_cps_7200; /* DSP_HZ // 7200 (5600 at 40.32 MHz) */
     int sample_cyc;    /* CPU_HZ // 7200, floor division as in machine.py */
     int dsp_cps;       /* DSP cycles per codec sample at the current rate */
-    int rate;          /* current codec rate, Hz (7200 or 9600 ...) */
+    int rate;          /* current codec rate, Hz, rounded (7200 or 9600 ...) */
+    double rate_hz;    /* exact codec rate; the sample period is cpu_hz / rate_hz CPU cycles, kept fractionally */
+    int64_t samp_period_q16, samp_frac_q16; /* sample period in 1/65536 CPU cycles, and its running remainder */
 
     /* Experiment toggles (config keys; see call.conf). */
     int p51div, hb_timer, dsp_clk_fixed, port_rb, sec_frame, int23;
@@ -279,6 +284,7 @@ struct Machine {
     MachineUart uart[2];
 
     Eeprom eeprom;
+    uint32_t hostbp[32]; int hostbp_n;   /* diagnostic breakpoints that only print (HOSTBP) */
     int p2pin;
     int hw_idx, voice_data_button;
     int flash_id;
@@ -314,6 +320,7 @@ uint8_t machine_rd8(Machine *m, uint32_t a);
 uint16_t machine_rd16(Machine *m, uint32_t a);
 void machine_wr8(Machine *m, uint32_t a, uint8_t v);
 void machine_set_rate(Machine *m, int rate);
+void machine_set_rate_hz(Machine *m, double hz);
 void machine_start_dsp(Machine *m);
 /* DSP output samples produced since the last call (also appended to
  * tx_all). Returns the count written to out. */

@@ -190,7 +190,7 @@ static size_t rs_pull(Rs *r, double *out, size_t max)
     return o;
 }
 #define BM_LINE_RATE 28800
-static Rs bm_up, bm_dn; static int bm_cur_rate; static double bm_fifo[131072]; static size_t bm_fifo_n;
+static Rs bm_up, bm_dn; static double bm_cur_rate; static double bm_fifo[131072]; static size_t bm_fifo_n;
 static int bm_in = -1, bm_out = -1, bm_init;
 static uint8_t bm_pend[4096]; static size_t bm_pend_n; static uint32_t bm_rate = 7200;
 static int bm_frame(const float *in, uint32_t n, float *out, uint8_t *dte_out, uint32_t *dn)
@@ -385,7 +385,7 @@ static size_t rs_linear(double *phase, double *last, const int32_t *xs,
 }
 
 size_t link_line8k_run(Link *l, int dir, const int32_t *xs, size_t n,
-                       double gain, int src_rate, int dst_rate, int32_t *out);
+                       double gain, double src_rate, double dst_rate, int32_t *out);
 
 static size_t link_new_samples(Machine *m, int which, Link *l, int32_t *out, size_t maxout)
 {
@@ -421,9 +421,9 @@ static void link_exchange(Link *l, int32_t *ta, int32_t *tb,
         int32_t *mine = bs == 0 ? ta : tb, *far = bs == 0 ? tb : ta; /* replaced machine's tx slot / the emulated one's tx */
         size_t *mine_n = bs == 0 ? &ta_n : &tb_n, far_n = bs == 0 ? tb_n : ta_n;
         Machine *emu = bs == 0 ? l->b : l->a, *rep = bs == 0 ? l->a : l->b;
-        rep->rate = emu->rate; /* the replaced machine is unused: keep link out of its resampling branch */
-        if (emu->rate != bm_cur_rate) { /* codec rate changed (7200, 9600, 10267 ...): new filters */
-            bm_cur_rate = emu->rate; rs_init(&bm_up, (double)bm_cur_rate, BM_LINE_RATE); rs_init(&bm_dn, BM_LINE_RATE, (double)bm_cur_rate); bm_fifo_n = 0;
+        rep->rate = emu->rate; rep->rate_hz = emu->rate_hz; /* the replaced machine is unused: keep link out of its resampling branch */
+        if (emu->rate_hz != bm_cur_rate) { /* codec rate changed (7200, 9600, 10267 ...): new filters */
+            bm_cur_rate = emu->rate_hz; rs_init(&bm_up, bm_cur_rate, BM_LINE_RATE); rs_init(&bm_dn, BM_LINE_RATE, bm_cur_rate); bm_fifo_n = 0;
         }
         for (size_t k = 0; k < far_n; k++) rs_push(&bm_up, (double)far[k] * l->gain);
         size_t m = rs_pull(&bm_up, up, 40000);
@@ -485,9 +485,9 @@ static void link_exchange(Link *l, int32_t *ta, int32_t *tb,
              * codec rate -> 8 kHz -> far codec rate, band-limited
              * (link_line8k_run, below). */
             size_t rbn = link_line8k_run(l, 0, ta, ta_n, g_ab,
-                l->a->rate, l->b->rate, rb);
+                l->a->rate_hz, l->b->rate_hz, rb);
             size_t ran = link_line8k_run(l, 1, tb, tb_n, l->gain,
-                l->b->rate, l->a->rate, ra);
+                l->b->rate_hz, l->a->rate_hz, ra);
             int32_t dly[8192];
             size_t dn = delayed(l, 1, rb, rbn, dly);
             rxbuf_extend(l->b, dly, dn);
@@ -513,13 +513,13 @@ static void link_exchange(Link *l, int32_t *ta, int32_t *tb,
              * the receiver's rate (linear interpolation). */
             int32_t tmp[8192];
             size_t rn = rs_linear(&l->rs_ab_phase, &l->rs_ab_last,
-                ta, ta_n, (double)l->a->rate, (double)l->b->rate, tmp);
+                ta, ta_n, l->a->rate_hz, l->b->rate_hz, tmp);
             int32_t outb[8192];
             for (size_t k = 0; k < rn; k++)
                 outb[k] = (int32_t)((int)(tmp[k] * g_ab) & 0xFFFF);
             rxbuf_extend(l->b, outb, rn);
             rn = rs_linear(&l->rs_ba_phase, &l->rs_ba_last,
-                tb, tb_n, (double)l->b->rate, (double)l->a->rate, tmp);
+                tb, tb_n, l->b->rate_hz, l->a->rate_hz, tmp);
             int32_t outa[8192];
             for (size_t k = 0; k < rn; k++)
                 outa[k] = (int32_t)((int)(tmp[k] * l->gain) & 0xFFFF);
@@ -649,7 +649,7 @@ void link_run(Link *l, uint64_t cycles)
 /* LINE8K helper: int32 samples -> int16 -> rs -> rs -> int32, with the
  * gain applied on the first leg (as in link.py: [v * g for v in ta]). */
 size_t link_line8k_run(Link *l, int dir, const int32_t *xs, size_t n,
-                       double gain, int src_rate, int dst_rate, int32_t *out)
+                       double gain, double src_rate, double dst_rate, int32_t *out)
 {
     static int16_t in16[8192], mid[16384], out16[16384];
     for (size_t i = 0; i < n; i++) {

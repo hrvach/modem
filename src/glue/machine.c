@@ -330,6 +330,7 @@ static void eeprom_clock(Eeprom *e, int di)
                 e->state = EE_IDLE;
             } else {
                 int sub = a >> 6;
+                if (getenv("EETRACE")) fprintf(stderr, "EEPROM %s\n", sub == 3 ? "write enable" : sub == 0 ? "write disable" : sub == 2 ? "erase all" : "write all");
                 if (sub == 3) e->ewen = 1;
                 else if (sub == 0) e->ewen = 0;
                 else if (sub == 2 && e->ewen) {
@@ -349,6 +350,7 @@ static void eeprom_clock(Eeprom *e, int di)
             int v = 0;
             for (int i = 0; i < 16; i++)
                 v = (v << 1) | e->bits[i];
+            if (getenv("EETRACE")) fprintf(stderr, "EEPROM write %02X <- %04X (%s)\n", e->addr, v, e->ewen ? "done" : "ignored: write not enabled");
             if (e->ewen) { e->w[e->addr % e->n] = (uint16_t)v; e->dirty = 1; }
             e->state = EE_IDLE; e->do_bit = 1;
         }
@@ -369,17 +371,25 @@ static void dsp_load_pm(C5x *dsp, uint16_t addr, const uint8_t *blob, size_t len
 
 void machine_set_rate(Machine *m, int rate)
 {
-    if (rate == m->rate)
+    machine_set_rate_hz(m, (double)rate);
+}
+
+void machine_set_rate_hz(Machine *m, double hz)
+{
+    int rate = (int)lround(hz);
+    if (hz == m->rate_hz)
         return;
     uint32_t pending = m->dsp ? (c5x_dxr_head(m->dsp) - m->tx_seen) : 0;
     RateIdxEnt e = { (int64_t)m->tx_all_n + (int64_t)pending, rate };
     PUSH(m->rate_idx, m->rate_idx_n, m->rate_idx_cap, RateIdxEnt, e);
     m->rate = rate;
-    m->sample_cyc = (int)(m->cpu_hz / rate);
+    m->rate_hz = hz;
+    m->sample_cyc = (int)((double)m->cpu_hz / hz);
+    m->samp_period_q16 = (int64_t)((double)m->cpu_hz * 65536.0 / hz + 0.5);
     if (!m->dsp_clk_fixed)
         m->dsp_cps = (int)m->dsp_cps_7200;
     else
-        m->dsp_cps = (int)(m->dsp_hz / rate);
+        m->dsp_cps = (int)((double)m->dsp_hz / hz);
     RateLogEnt le = { (double)i186_cycles(m->cpu) / (double)m->cpu_hz, rate };
     PUSH(m->rate_log, m->rate_log_n, m->rate_log_cap, RateLogEnt, le);
 }
@@ -395,19 +405,47 @@ static double aic_gain_out(Machine *m)
     return m->ac01_model ? g[m->aic[4] & 3] : 1.0;
 }
 
+/* The DSP's symbol-rate table (PM 0x816B, routine 0x8151) writes, per V.34 symbol rate, five words: ports 0x68, 0x69, 0x6B (N),
+ * 0x6C and the AC01 register-2 value B. The old model fs = 12000 N / (A B) with the integer N is exactly 3 x baud for 2400,
+ * 2800 and 3200 baud but 0.2-0.35% low for 2743, 3000 and 3429 (ideal N would be 130.29, 142.5, 154.29).
+ * Deduced from the table: the codec rate is the 40.32 MHz board oscillator divided by 2 A T with an integer T per row,
+ *   row (baud)   T    3 x baud        B*(p68-1) + p69_hi
+ *   0 (2400)     280  7200            20*14 + 0
+ *   1 (2743)     245  8228.571        19*12 + 17
+ *   2 (2800)     240  8400            19*12 + 12
+ *   3 (3000)     224  9000            19*11 + 15
+ *   4 (3200)     210  9600            (18*11 + 12: p69 not read the same way for the B = 18 rows)
+ *   5 (3429)     196  10285.714       (18*10 + 16)
+ * i.e. exactly 3 samples per symbol, which the DSP code assumes (carrier and timing tables are in units of the baud rate).
+ * N is just round(1680 B / T). The ports 0x68/0x69/0x6C are not decoded beyond the first four rows; the rate does not need them. */
+static double aic_row_rate(int a, int b, int n)
+{
+    static const struct { int n, b, t; } row[6] = {
+        { 120, 20, 280 }, { 130, 19, 245 }, { 133, 19, 240 }, { 142, 19, 224 }, { 144, 18, 210 }, { 154, 18, 196 },
+    };
+    if (a == 10)
+        for (int i = 0; i < 6; i++)
+            if (row[i].n == n && row[i].b == b)
+                return 40320000.0 / (2.0 * a * row[i].t);
+    return 12000.0 * n / (a * b);
+}
+
 static void aic_update(Machine *m)
 {
     /* fs = 12000 N / (A B) once N (port 0x6B), A and B (AC01 registers
-     * 1, 2) are all known. */
+     * 1, 2) are all known; see aic_row_rate for the table rows. */
     int a = m->aic[1], b = m->aic[2], n = m->mclk_n;
     if (n && a && b) {
-        int r = (int)lround(12000.0 * n / (a * b));
-        if (r < 4000) r = 4000;
-        if (r > 16000) r = 16000;
+        double hz = aic_row_rate(a, b, n);
+        int r = (int)lround(hz);
+        if (r < 4000) { r = 4000; hz = r; }
+        if (r > 16000) { r = 16000; hz = r; }
         for (int i = 0; i < m->ac01_clamp_n; i++)
-            if (m->ac01_clamp_keys[i] == r)
+            if (m->ac01_clamp_keys[i] == r) {
                 r = m->ac01_clamp_vals[i];
-        machine_set_rate(m, r);
+                hz = r;
+            }
+        machine_set_rate_hz(m, hz);
     }
 }
 
@@ -580,6 +618,8 @@ Machine *machine_new(const Config *cfg)
     m->sample_cyc = (int)(m->cpu_hz / 7200);
     m->dsp_cps = (int)m->dsp_cps_7200;
     m->rate = 7200;
+    m->rate_hz = 7200.0;
+    m->samp_period_q16 = (int64_t)((double)m->cpu_hz * 65536.0 / 7200.0 + 0.5);
     /* Toggles: config values already carry env fallbacks (config.c). */
     m->p51div = cfg->p51div; m->hb_timer = cfg->hb_timer;
     m->dsp_clk_fixed = cfg->dsp_clk_fixed; m->port_rb = cfg->port_rb;
@@ -693,6 +733,10 @@ Machine *machine_new(const Config *cfg)
         i186_set_bp(m->cpu, 0x9EB96, 1);
     if (m->nvram_mode >= 0)
         i186_set_bp(m->cpu, 0x8063E, 1);
+    if (getenv("HOSTBP")) {
+        char b[512]; snprintf(b, sizeof b, "%s", getenv("HOSTBP"));
+        for (char *t = strtok(b, ","); t && m->hostbp_n < 32; t = strtok(NULL, ",")) { m->hostbp[m->hostbp_n] = (uint32_t)strtoul(t, NULL, 16); i186_set_bp(m->cpu, m->hostbp[m->hostbp_n], 1); m->hostbp_n++; }
+    }
     i186_set_cycle_model(m->cpu, m->cpu_model);
     i186_set_cycle_scale(m->cpu, m->cpu_scale);
     i186_set_ud_trap(m->cpu, m->ud_trap ? 1 : 0);
@@ -706,7 +750,6 @@ void machine_free(Machine *m)
         return;
     if (getenv("HITS") && m->dsp) {
         if (getenv("HITSFILE")) { char fn[512]; snprintf(fn, sizeof fn, "%s.%c", getenv("HITSFILE"), m->tag); FILE *hf = fopen(fn, "w"); if (hf) { for (unsigned a = 0; a < 65536; a++) { unsigned h = c5x_pc_hits(m->dsp, a); if (h) fprintf(hf, "%04X %u\n", a, h); } fclose(hf); } }
-        if (getenv("DMWFILE")) { char fn[512]; snprintf(fn, sizeof fn, "%s.%c", getenv("DMWFILE"), m->tag); FILE *wf = fopen(fn, "w"); if (wf) { fprintf(wf, "ISR %u\n", c5x_pc_hits(m->dsp, 0x8189)); for (unsigned a = 0; a < 65536; a++) { unsigned n = c5x_dm_writes(m->dsp, a); if (n) fprintf(wf, "%04X %u\n", a, n); } fclose(wf); } }
         fprintf(stderr, "HITS %c regions:", m->tag);
         for (unsigned b = 0x8000; b < 0x10000; b += 0x400) { unsigned long t = 0; for (unsigned a = b; a < b + 0x400; a++) t += c5x_pc_hits(m->dsp, a); if (t) fprintf(stderr, " %04X=%lu", b, t); }
         fprintf(stderr, "\nHITS %c C88B=%u C9B0=%u C98E=%u C904=%u  D8C1=%u D976=%u\n", m->tag, c5x_pc_hits(m->dsp,0xC88B), c5x_pc_hits(m->dsp,0xC9B0), c5x_pc_hits(m->dsp,0xC98E), c5x_pc_hits(m->dsp,0xC904), c5x_pc_hits(m->dsp,0xD8C1), c5x_pc_hits(m->dsp,0xD976));
@@ -714,6 +757,7 @@ void machine_free(Machine *m)
         fprintf(stderr, "HITS %c total instructions executed in C000..CD4A (ov7 range): %lu ; in DC00..F8B5 (ov8): %lu\n", m->tag, hi, ov8);
     }
     if (getenv("WATCHDM") && m->dsp && m->tag == 'A') { fprintf(stderr, "WATCHDM %s writers:", getenv("WATCHDM")); for (unsigned pc = 0; pc < 65536; pc++) { unsigned h = c5x_watch_hits(m->dsp, pc); if (h) fprintf(stderr, " %04X=%u", pc, h); } fprintf(stderr, "\n"); }
+    if (getenv("EEDUMP") && m->tag == 'A') { FILE *f = fopen(getenv("EEDUMP"), "wb"); if (f) { for (int i = 0; i < 256; i++) { fputc(m->eeprom.w[i] & 0xFF, f); fputc(m->eeprom.w[i] >> 8, f); } fclose(f); } }   /* diagnostic: the EEPROM image at exit */
     if (getenv("DUMPMEM") && m->dsp) { char fn[512]; FILE *f; snprintf(fn, sizeof fn, "%s.%c.pm", getenv("DUMPMEM"), m->tag); if ((f = fopen(fn, "wb"))) { fwrite(c5x_pmem(m->dsp), 2, 65536, f); fclose(f); } snprintf(fn, sizeof fn, "%s.%c.dm", getenv("DUMPMEM"), m->tag); if ((f = fopen(fn, "wb"))) { fwrite(c5x_dmem(m->dsp), 2, 65536, f); fclose(f); } }
     free(m->log); free(m->pcblog); free(m->dte_out); free(m->txq);
     free(m->dsp_bursts);
@@ -766,16 +810,54 @@ size_t machine_dte_text(Machine *m, uint8_t *out, size_t maxout)
     return n;
 }
 
+/* The two 16-word tables the DSP's on-chip mask ROM holds that V.22bis and V.34 read (PM 0x0440 and 0x0450; tools/gen_v22_rom.py,
+ * docs/dsp-onchip-rom.md). Generated from the V.22bis rules, identical to the real ROM's words:
+ *   0x0440  16-point constellation: word = I << 8 | Q (signed bytes, unit 16), index = (Q3Q4 << 2) | quadrant, quadrant =
+ *           (I > 0) << 1 | (Q > 0); Q3Q4 picks the first-quadrant point (1,1) (1,3) (3,1) (3,3), the other quadrants are
+ *           that point rotated by 90, 180 and 270 degrees;
+ *   0x0450  differential quadrant table: index = (dibit << 2) | previous quadrant; counter-clockwise the quadrant codes run
+ *           3, 1, 0, 2 and the dibit adds 1, 2, 0, 3 quarter turns. */
+static void dsp_synth_rom(C5x *dsp)
+{
+    static const int ccw[4] = { 3, 1, 0, 2 }, shift[4] = { 1, 2, 0, 3 };
+    static const int base[4][2] = { { 1, 1 }, { 1, 3 }, { 3, 1 }, { 3, 3 } };
+    uint16_t w[32];
+    int n = 0;
+    for (int q34 = 0; q34 < 4; q34++)
+        for (int quad = 0; quad < 4; quad++) {
+            int k = 0, x = base[q34][0], y = base[q34][1];
+            while (ccw[k] != quad) k++;
+            for (int r = 0; r < k; r++) { int t = x; x = -y; y = t; }
+            w[n++] = (uint16_t)(((x * 16) & 0xFF) << 8 | ((y * 16) & 0xFF));
+        }
+    for (int dibit = 0; dibit < 4; dibit++)
+        for (int prev = 0; prev < 4; prev++) {
+            int k = 0;
+            while (ccw[k] != prev) k++;
+            w[n++] = (uint16_t)ccw[(k + shift[dibit]) % 4];
+        }
+    uint8_t bytes[64];
+    for (int i = 0; i < 32; i++) { bytes[2 * i] = (uint8_t)(w[i] & 0xFF); bytes[2 * i + 1] = (uint8_t)(w[i] >> 8); }
+    dsp_load_pm(dsp, 0x440, bytes, sizeof bytes);
+}
+
 void machine_start_dsp(Machine *m)
 {
     mtrace(m, "DSP start (supervisor bursts)");
     /* Resident bank = captured bursts, skipping the first 16 bytes (the
-     * 0x83 reset pattern), dsp_base_bytes per profile (sv25: 55420). */
+     * 0x83 reset pattern). The supervisor sends the image in whole 8-byte
+     * bursts and pads the last one with erased-flash fill (0xFF); the image
+     * ends where that fill starts, so there is no per-firmware length (SV25
+     * and SV20 both give 55420 bytes). */
     size_t total = m->dsp_bursts_n * 8;
     size_t avail = total > 16 ? total - 16 : 0;
     size_t take = avail;
-    if (m->prof->dsp_base_bytes >= 0 && take > (size_t)m->prof->dsp_base_bytes)
-        take = (size_t)m->prof->dsp_base_bytes;
+    while (take > 0 && m->dsp_bursts[16 + take - 1] == 0xFF) {
+        take--;
+    }
+    if (take & 1) {
+        take++;
+    }
     uint8_t *flat = malloc(total ? total : 1);
     for (size_t i = 0; i < m->dsp_bursts_n; i++)
         memcpy(flat + i * 8, m->dsp_bursts + i * 8, 8);
@@ -784,18 +866,26 @@ void machine_start_dsp(Machine *m)
     if (getenv("WATCHDM") && m->tag == 'A') c5x_set_watch(m->dsp, (int32_t)strtol(getenv("WATCHDM"), NULL, 16));
     dsp_load_pm(m->dsp, 0x8000, flat + 16, take);
     free(flat);
-    if (m->dsp_rom[0]) {
-        char rom_path[CFG_MAX_PATH];
-        if (strcmp(m->dsp_rom, "1") == 0)
-            snprintf(rom_path, sizeof rom_path, "fw/c5x-onchip-rom-8k.bin");
-        else
-            config_resolve(m->cfg, m->dsp_rom, rom_path, sizeof rom_path);
-        size_t rlen = 0;
-        uint8_t *rom = read_file(rom_path, &rlen);
-        if (rom) {
-            dsp_load_pm(m->dsp, 0, rom, rlen);
-            free(rom);
+    /* On-chip ROM: "" or "synth" = the two tables V.22bis and V.34 read, synthesised (see dsp_synth_rom); "none" = nothing;
+     * "1" = fw/c5x-onchip-rom-8k.bin, anything else a path; a missing file falls back to the synthesised tables. */
+    if (strcmp(m->dsp_rom, "none") != 0) {
+        int loaded = 0;
+        if (m->dsp_rom[0] && strcmp(m->dsp_rom, "synth") != 0) {
+            char rom_path[CFG_MAX_PATH];
+            if (strcmp(m->dsp_rom, "1") == 0)
+                snprintf(rom_path, sizeof rom_path, "fw/c5x-onchip-rom-8k.bin");
+            else
+                config_resolve(m->cfg, m->dsp_rom, rom_path, sizeof rom_path);
+            size_t rlen = 0;
+            uint8_t *rom = read_file(rom_path, &rlen);
+            if (rom) {
+                dsp_load_pm(m->dsp, 0, rom, rlen);
+                free(rom);
+                loaded = 1;
+            }
         }
+        if (!loaded)
+            dsp_synth_rom(m->dsp);
     }
     for (int i = 0; i < 11; i++)
         c5x_set_ivec_ind(m->dsp, i, (uint16_t)(0x60 + i));
@@ -1138,24 +1228,30 @@ const char *machine_icu_state(Machine *m, char *buf, size_t len)
 }
 
 /* ---- I/O ports (machine.py iord / iowr) ---- */
-extern int c5x_memtrace;
+#ifdef C5X_MEMTRACE
+extern int c5x_memtrace, c5x_memtrace_lo, c5x_memtrace_hi;
+#endif
 static void dsp_run_traced(Machine *m, uint64_t n)
-{   /* diagnostic: MEMTRACE_WIN=lo,hi (A's cpu seconds) prints that DSP's data reads/writes (core c5x_memtrace) */
+{   /* diagnostic: MEMTRACE_WIN=lo,hi (A's cpu seconds) prints that DSP's data reads/writes; needs a build with -DC5X_MEMTRACE */
     static double lo = -2, hi = -2;
     if (lo == -2) { const char *e = getenv("MEMTRACE_WIN"); lo = hi = -1; if (e) sscanf(e, "%lf,%lf", &lo, &hi); }
+#ifdef C5X_MEMTRACE
+    { static int pcinit; if (!pcinit) { pcinit = 1; const char *e = getenv("MEMTRACE_PC"); if (e) sscanf(e, "%x,%x", &c5x_memtrace_lo, &c5x_memtrace_hi); } }
+#endif
+#ifdef C5X_MEMTRACE
     if (lo >= 0 && m->tag == 'A') { double t = (double)i186_cycles(m->cpu) / (double)m->cpu_hz; c5x_memtrace = (t >= lo && t <= hi); }
+#else
+    (void)lo; (void)hi;
+#endif
     c5x_run(m->dsp, n);
+#ifdef C5X_MEMTRACE
     c5x_memtrace = 0;
+#endif
 }
 static uint32_t machine_iord_inner(void *ctx, uint16_t p, int w);
 static uint32_t machine_iord(void *ctx, uint16_t p, int w)
 {
-    Machine *m = ctx;
-    uint32_t v = machine_iord_inner(ctx, p, w);
-    static double lo = -2, hi = -2;
-    if (lo == -2) { const char *e = getenv("IORD_WIN"); lo = hi = -1; if (e) sscanf(e, "%lf,%lf", &lo, &hi); }
-    if (lo >= 0 && m->tag == 'A') { double t = (double)i186_cycles(m->cpu) / (double)m->cpu_hz; if (t >= lo && t <= hi) fprintf(stderr, "IORD t=%.4f pc=%05X port=%04X w=%d -> %04X\n", t, (unsigned)machine_phys_pc(m), p, w, v); }
-    return v;
+    return machine_iord_inner(ctx, p, w);
 }
 static uint32_t machine_iord_inner(void *ctx, uint16_t p, int w)
 {
@@ -1178,7 +1274,6 @@ static uint32_t machine_iord_inner(void *ctx, uint16_t p, int w)
         uint16_t wv = m->d2h[idx]; /* d2h[0] = word 0x58 */
         m->d2h_unread[idx] = 0;
         if (p == 0x58) m->d2h_valid = 0;
-        { static int mt = -1; if (mt < 0) mt = getenv("MBXTRACE") != NULL; if (mt) fprintf(stderr, "MBXRD %c t=%.4f port=%02X word=%d -> %04X\n", m->tag, (double)i186_cycles(m->cpu) / (double)m->cpu_hz, p, idx, wv); }
         return hi ? (wv >> 8) & 0xFF : wv & 0xFF;
     }
     if ((p == 0x18 || p == 0x1A) && m->dsp)
@@ -1215,6 +1310,7 @@ void machine_host_cmd(Machine *m, int cmd, int arg)
 
 static void machine_iowr(void *ctx, uint16_t p, int w, uint32_t v)
 {
+
     Machine *m = ctx;
     if (m->logging && m->log_n < LOG_CAP) {
         IoLogEnt e = { 'W', p, w, v, machine_phys_pc(m) };
@@ -1262,6 +1358,11 @@ static void machine_iowr(void *ctx, uint16_t p, int w, uint32_t v)
         if (hi) m->h2d[widx] = (uint16_t)((m->h2d[widx] & 0x00FF) | ((v & 0xFF) << 8));
         else m->h2d[widx] = (uint16_t)((m->h2d[widx] & 0xFF00) | (v & 0xFF));
         if (p == 0x5E) {
+            { static int init, on; static unsigned tc, ta_old, ta_new, tn, seen; /* diagnostic experiment: H2D_TWEAK="<cmd hex>:<old arg hex>:<new arg hex>:<nth occurrence>" rewrites one host->DSP command argument */
+              if (!init) { init = 1; const char *e = getenv("H2D_TWEAK"); if (e && sscanf(e, "%x:%x:%x:%u", &tc, &ta_old, &ta_new, &tn) == 4) on = 1; }
+              if (on && m->tag == 'A' && (m->h2d[6] & 0xFF) == tc && (m->h2d[7] & 0xFF) == ta_old && ++seen == tn) {
+                  fprintf(stderr, "H2D_TWEAK: cmd %02X arg %02X -> %02X (occurrence %u)\n", tc, ta_old, ta_new, tn);
+                  m->h2d[7] = (uint16_t)((m->h2d[7] & 0xFF00) | ta_new); } }
             if (m->cmd_ovr[0]) cmd_override(m);
             m->h2d_pending = 1;
             if (m->int23) c5x_irq(m->dsp, GLUE_C5X_INT2);
@@ -1373,7 +1474,7 @@ static void machine_dsp_wr(void *ctx, uint16_t p, uint16_t v)
                               m->d2h[0x5E - 0x58], m->d2h[0x5F - 0x58],
                               i186_cycles(m->cpu) };
                 PUSH(m->msg_log, m->msg_log_n, m->msg_log_cap, MsgEnt, me);
-                mtrace(m, "DSP->host msg %04X %04X %04X %04X", me.w0, me.w1, me.w2, me.w3);
+                mtrace(m, "DSP->host msg %04X %04X %04X %04X  (dsp pc %04X, host callback %04X, flags[32C]=%02X)", me.w0, me.w1, me.w2, me.w3, (unsigned)c5x_get(m->dsp, GLUE_C5X_PC), i186_mem(m->cpu)[0x298] | (i186_mem(m->cpu)[0x299] << 8), i186_mem(m->cpu)[0x32C]);
             }
         }
     }
@@ -1504,19 +1605,21 @@ static void line_feed(Machine *m, int64_t now)
 /* ---- one codec sample period (machine.py _sample) ---- */
 static void machine_sample(Machine *m)
 {
-    if (getenv("DMTRACE") && m->tag == 'A' && m->dsp) { /* diagnostic: DMTRACE=<file>:<hex>,<hex>,...  (u16 per cell per codec sample);
-                                                        * DMTRACE_LAST=<K> keeps only the last K samples (written at exit) */
-        static FILE *tf; static unsigned short addrs[1024]; static int na; static int init; static uint16_t *ring; static size_t rk, rn; static char path[512];
+    if (getenv("INJECT_MSG") && m->dsp) { /* diagnostic: INJECT_MSG="<side A|B>@<cpu sec>:<hex w2>:<hex w3>;..." posts a DSP->host message to that modem's host, as the DSP would */
+        static struct { int n; char side[16]; double t[16]; unsigned w2[16], w3[16]; int done[16]; int init; } inj;
+        if (!inj.init) { inj.init = 1; char buf[512]; snprintf(buf, sizeof buf, "%s", getenv("INJECT_MSG")); for (char *tok = strtok(buf, ";"); tok && inj.n < 16; tok = strtok(NULL, ";")) { char sd; double t; unsigned a2, a3; if (sscanf(tok, "%c@%lf:%x:%x", &sd, &t, &a2, &a3) == 4) { inj.side[inj.n] = sd; inj.t[inj.n] = t; inj.w2[inj.n] = a2; inj.w3[inj.n] = a3; inj.n++; } } }
+        double tnow = (double)i186_cycles(m->cpu) / (double)m->cpu_hz;
+        for (int i = 0; i < inj.n; i++) if (!inj.done[i] && inj.side[i] == m->tag && tnow >= inj.t[i]) {
+            inj.done[i] = 1; m->d2h[6] = (uint16_t)inj.w2[i]; m->d2h[7] = (uint16_t)inj.w3[i]; m->d2h_valid = 1; m->evt |= 2; m->int0_req = 1;
+            mtrace(m, "INJECTED DSP->host msg %04X %04X (host callback %04X)", inj.w2[i], inj.w3[i], i186_mem(m->cpu)[0x298] | (i186_mem(m->cpu)[0x299] << 8)); }
+    }
+    if (getenv("DMTRACE") && m->tag == 'A' && m->dsp) { /* diagnostic: DMTRACE=<file>:<hex>,<hex>,...  (u16 per cell per codec sample; cells from 0xC00 up are read from program memory, which external data memory shares) */
+        static FILE *tf; static unsigned short addrs[1024]; static int na; static int init;
         if (!init) { init = 1; char spec[16384]; snprintf(spec, sizeof spec, "%s", getenv("DMTRACE")); char *colon = strchr(spec, ':');
-            if (colon) { *colon = 0; snprintf(path, sizeof path, "%s", spec); for (char *t = strtok(colon + 1, ","); t && na < 1024; t = strtok(NULL, ",")) addrs[na++] = (unsigned short)strtol(t, NULL, 16);
-                if (getenv("DMTRACE_LAST")) { rk = (size_t)atol(getenv("DMTRACE_LAST")); ring = calloc(rk * (size_t)na, sizeof *ring); }
-                else { tf = fopen(path, "wb"); if (tf) { fwrite(&na, 4, 1, tf); fwrite(addrs, 2, (size_t)na, tf); } } } }
+            if (colon) { *colon = 0; for (char *t = strtok(colon + 1, ","); t && na < 1024; t = strtok(NULL, ",")) addrs[na++] = (unsigned short)strtol(t, NULL, 16);
+                tf = fopen(spec, "wb"); if (tf) { fwrite(&na, 4, 1, tf); fwrite(addrs, 2, (size_t)na, tf); } } }
         const uint16_t *d = c5x_dmem(m->dsp), *pmm = c5x_pmem(m->dsp);
-        if (ring) { uint16_t *row = ring + (rn % rk) * (size_t)na; for (int i = 0; i < na; i++) row[i] = addrs[i] < 0xC00 ? d[addrs[i]] : pmm[addrs[i]]; rn++;
-            if ((rn & 0x3FFF) == 0 || rn == 1) { /* rewrite the file now and then so an interrupted run still leaves data */
-                FILE *f = fopen(path, "wb"); if (f) { size_t cnt = rn < rk ? rn : rk, first = rn < rk ? 0 : rn % rk; fwrite(&na, 4, 1, f); fwrite(addrs, 2, (size_t)na, f);
-                    for (size_t k = 0; k < cnt; k++) fwrite(ring + ((first + k) % rk) * (size_t)na, 2, (size_t)na, f); fclose(f); } } }
-        else if (tf) { for (int i = 0; i < na; i++) { uint16_t v = addrs[i] < 0xC00 ? d[addrs[i]] : pmm[addrs[i]]; fwrite(&v, 2, 1, tf); } fflush(tf); }
+        if (tf) { for (int i = 0; i < na; i++) { uint16_t v = addrs[i] < 0xC00 ? d[addrs[i]] : pmm[addrs[i]]; fwrite(&v, 2, 1, tf); } fflush(tf); }
     }
     if (m->sec_frame && m->ac01_model && m->aic_req) {
         /* A primary word with D1 D0 = 11 was just consumed: the AC01
@@ -1685,7 +1788,9 @@ static void machine_service(Machine *m, int64_t now)
     if (now >= m->next_samp) {
         while (now >= m->next_samp) {
             machine_sample(m);
-            m->next_samp += m->sample_cyc;
+            m->samp_frac_q16 += m->samp_period_q16;
+            m->next_samp += m->samp_frac_q16 >> 16;
+            m->samp_frac_q16 &= 0xFFFF;
         }
         if (!m->h2d_pending &&
             machine_rd16(m, 0x29A) != machine_rd16(m, 0x29C)) {
@@ -1739,6 +1844,11 @@ int machine_run(Machine *m, uint64_t cycles)
                 machine_wr8(m, 0xEA7, (uint8_t)(machine_rd8(m, 0xEA7) | 1));
                 machine_wr8(m, 0x3FBA, (uint8_t)m->dte_speed_code);
                 continue;
+            }
+            if (m->hostbp_n) {   /* diagnostic: HOSTBP=hex,hex,... physical addresses; prints registers and carry, then goes on */
+                int hit = 0;
+                for (int i = 0; i < m->hostbp_n; i++) if (m->hostbp[i] == pc) hit = 1;
+                if (hit) { fprintf(stderr, "HOSTBP %c %05X AX=%04X BX=%04X CX=%04X SI=%04X DI=%04X CF=%u\n", m->tag, (unsigned)pc, i186_get(m->cpu, GLUE_I186_AX), i186_get(m->cpu, GLUE_I186_BX), i186_get(m->cpu, GLUE_I186_CX), i186_get(m->cpu, GLUE_I186_SI), i186_get(m->cpu, GLUE_I186_DI), (unsigned)(i186_get(m->cpu, GLUE_I186_FLAGS) & 1)); continue; }
             }
             if (!m->nvram_done && pc == 0x8063E && m->nvram_mode >= 0) {
                 machine_wr8(m, 0x5F1, (uint8_t)m->nvram_mode);

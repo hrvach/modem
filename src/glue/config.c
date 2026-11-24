@@ -20,7 +20,14 @@ static const Profile PROFILES[] = {
         .name = "previous image (SV25)",
         .flash = "fw/SV25.flash.bin", .nvram = "fw/nvram.bin",
         .cpu_hz = 25804800, .dsp_hz = 40320000, .iface = "25",
-        .dsp_base_bytes = 55420, .hw_idx = 7,
+        .hw_idx = 7,
+    },
+    {
+        .key = "sv20",
+        .name = "20.16 MHz image (SV20)",
+        .flash = "fw/SV20.flash.bin", .nvram = "fw/nvram.bin",
+        .cpu_hz = 20160000, .dsp_hz = 40320000, .iface = "25",
+        .hw_idx = 7,
     },
 };
 
@@ -39,6 +46,7 @@ const Profile *profile_by_flash_name(const char *base)
 {
     static const struct { const char *prefix, *key; } m[] = {
         { "SV25", "sv25" },
+        { "SV20", "sv20" },
     };
     if (!base)
         return NULL;

@@ -29,7 +29,6 @@ typedef struct {
     long cpu_hz;
     long dsp_hz;
     const char *iface; /* "403" or "25" */
-    long dsp_base_bytes; /* -1 = take whatever the supervisor sends */
     int hw_idx;
 } Profile;
 

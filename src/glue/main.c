@@ -132,7 +132,7 @@ int main(int argc, char **argv)
         cfg.duration_seconds = cli_duration;
     if (cli_out)
         snprintf(cfg.log_dir, sizeof cfg.log_dir, "%s", cli_out);
-    if (strcmp(cfg.mode, "auto") && strcmp(cfg.mode, "v21") &&
+    if (strcmp(cfg.mode, "auto") && strcmp(cfg.mode, "v21") && strcmp(cfg.mode, "b103") &&
         strcmp(cfg.mode, "v22") && strcmp(cfg.mode, "echo") &&
         strcmp(cfg.mode, "gate")) {
         fprintf(stderr, "courier-call: unknown mode '%s'\n", cfg.mode);
@@ -191,7 +191,11 @@ int main(int argc, char **argv)
     int nb = split_setup(setup_b, toks_b, 32);
     /* Mode extras, exactly as in linkcall.py. */
     const char *extra_a = NULL, *extra_b = NULL;
-    if (strcmp(cfg.mode, "v21") == 0) { extra_a = "AT&N1\r"; extra_b = "AT&N1\r"; }
+    /* 300 bps: V.21 needs S27 bit 0 ("Enables V.21 modulation at 300 bps"); without it the modem
+     * uses Bell 103, and AT&N1 with ATB0 alone gets no handshake at all. */
+    const char *extra2 = NULL, *bcmd = "ATB0\r";
+    if (strcmp(cfg.mode, "v21") == 0) { extra_a = "AT&N1\r"; extra_b = "AT&N1\r"; bcmd = NULL; }
+    if (strcmp(cfg.mode, "b103") == 0) { extra_a = "AT&N1\r"; extra_b = "AT&N1\r"; extra2 = "ATS27=0\r"; bcmd = "ATB1\r"; }
     if (strcmp(cfg.mode, "v22") == 0) { extra_a = "AT&N3\r"; extra_b = "AT&N3\r"; }
     for (int i = 0; i < na; i++) {
         link_send(l, 0, (const uint8_t *)(toks_a[i]), strlen(toks_a[i]));
@@ -200,8 +204,8 @@ int main(int argc, char **argv)
     if (extra_a) {
         link_send(l, 0, (const uint8_t *)(extra_a), strlen(extra_a));
         link_run(l, (uint64_t)cfg.setup_cycles);
-        link_send(l, 0, (const uint8_t *)("ATB0\r"), strlen("ATB0\r"));
-        link_run(l, (uint64_t)cfg.setup_cycles);
+        if (extra2) { link_send(l, 0, (const uint8_t *)extra2, strlen(extra2)); link_run(l, (uint64_t)cfg.setup_cycles); }
+        if (bcmd) { link_send(l, 0, (const uint8_t *)bcmd, strlen(bcmd)); link_run(l, (uint64_t)cfg.setup_cycles); }
     }
     for (int i = 0; i < nb; i++) {
         link_send(l, 1, (const uint8_t *)(toks_b[i]), strlen(toks_b[i]));
@@ -210,8 +214,8 @@ int main(int argc, char **argv)
     if (extra_b) {
         link_send(l, 1, (const uint8_t *)(extra_b), strlen(extra_b));
         link_run(l, (uint64_t)cfg.setup_cycles);
-        link_send(l, 1, (const uint8_t *)("ATB0\r"), strlen("ATB0\r"));
-        link_run(l, (uint64_t)cfg.setup_cycles);
+        if (extra2) { link_send(l, 1, (const uint8_t *)extra2, strlen(extra2)); link_run(l, (uint64_t)cfg.setup_cycles); }
+        if (bcmd) { link_send(l, 1, (const uint8_t *)bcmd, strlen(bcmd)); link_run(l, (uint64_t)cfg.setup_cycles); }
     }
     uint8_t setup_a_txt[8192], setup_b_txt[8192];
     size_t setup_a_n, setup_b_n;
@@ -284,9 +288,6 @@ int main(int argc, char **argv)
                 for (char *tok = strtok(buf, ";"); tok && seq_n[sd] < 16; tok = strtok(NULL, ";")) { char *eq = strchr(tok, '='); if (!eq) continue; *eq = 0; seq_t[sd][seq_n[sd]] = atof(tok); char *o = seq_s[sd][seq_n[sd]]; for (char *q = eq + 1; *q && o < seq_s[sd][seq_n[sd]] + 126; q++) { if (q[0] == '\\' && q[1] == 'r') { *o++ = '\r'; q++; } else *o++ = *q; } *o = 0; seq_n[sd]++; } } }
             for (int sd = 0; sd < 2; sd++) while (seq_i[sd] < seq_n[sd] && (double)link_samples(l) / LINK_FS >= seq_t[sd][seq_i[sd]]) { link_send(l, sd, (const uint8_t *)seq_s[sd][seq_i[sd]], strlen(seq_s[sd][seq_i[sd]])); seq_i[sd]++; }
         }
-        if (getenv("HITS_AT_CONNECT")) { /* diagnostic: clear the DSP per-PC / per-address counters when A reports CONNECT */
-            static int cleared; if (!cleared && l->txt_a_n && memmem(l->txt_a, l->txt_a_n, "CONNECT", 7)) { cleared = 1; c5x_pc_hits_clear(l->a->dsp); c5x_pc_hits_clear(l->b->dsp); fprintf(stderr, "HITS cleared at CONNECT, sim t=%.3f\n", (double)link_samples(l) / LINK_FS); }
-        }
         if (payload && !payload_sent && l->txt_b_n &&
             memmem(l->txt_b, l->txt_b_n, "CONNECT", 7)) {
             /* Caller (B) payload, once B reports CONNECT. */
@@ -300,7 +301,7 @@ int main(int argc, char **argv)
             payload_a_sent = 1;
         }
         /* Stop as soon as each side has the other side's message. */
-        if (!getenv("NOSTOP") && payload_sent && payload_a_sent &&
+        if (payload_sent && payload_a_sent &&
             memmem(l->txt_a, l->txt_a_n, cfg.send_text, strlen(cfg.send_text)) &&
             memmem(l->txt_b, l->txt_b_n, cfg.send_text_a, strlen(cfg.send_text_a)))
             break;

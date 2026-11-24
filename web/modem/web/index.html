@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Courier modems</title>
+<title>Modem lab</title>
 <style>
   @font-face { font-family: 'VT100'; src: url('vt100-regular.ttf') format('truetype'); }
-  :root { --bg: #f5f6f8; --card: #fff; --line: #e3e6ea; --ink: #1c1f24; --mute: #6b7280; --blue: #3b5bdb; --blue-soft: #a6b8f2;
+  :root { --bg: #f5f6f8; --card: #fff; --line: #e3e6ea; --ink: #1c1f24; --mute: #6b7280; --blue: #2f7a4a; --blue-soft: #a9cdb4;   /* the one accent (green), used for buttons, links, toggles */
+         
           --green: #6fdc6f; --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--ink); }
@@ -15,169 +16,390 @@
   button:disabled { background: var(--blue-soft); border-color: var(--blue-soft); cursor: default; }
   button.ghost { background: #fff; color: var(--ink); border-color: var(--line); padding: .3rem .7rem; }
   button.ghost:hover { border-color: #c7ccd3; }
+  button.ghost:disabled { background: #fff; color: #a3a9b3; border-color: var(--line); }
+  .grp { display: flex; align-items: center; gap: .5rem; }
+  /* the serial cable from each modem to its terminal */
+  .serial { display: flex; justify-content: center; height: 30px; }
+  .serial path { fill: none; stroke-linecap: round; }
+  .serial .so { display: none; }
+  .serial .sc { stroke: #98a09a; stroke-width: 2.6; }
+  .serial svg { overflow: visible; } .serial .port { fill: #aab1ab; }
+  .thead { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: .3rem .8rem; background: #eef1ed; border-bottom: 1px solid #b4bdb6; }
+  .thead .flip { margin-top: 0; }
+  .flip { display: inline-flex; align-items: center; gap: .5rem; margin-top: .3rem; font: 12px var(--mono); color: var(--mute); cursor: pointer; user-select: none; }
+  .flip input { position: absolute; opacity: 0; pointer-events: none; }
+  .flip .knob { position: relative; width: 30px; height: 16px; border-radius: 8px; background: #c3cbc4; transition: background .15s; }
+  .flip .knob::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .flip input:checked + .knob { background: #2f9e44; } .flip input:checked + .knob::after { left: 16px; }
+  .flip input:focus-visible + .knob { outline: 2px solid #2f9e44; outline-offset: 2px; }
+  .termstat { font: 12px var(--mono); color: var(--mute); margin-top: .4rem; min-height: 1.3em; }
   label { color: var(--mute); }
   select { font: inherit; padding: .3rem .4rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
-  .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .tabs { display: flex; gap: .3rem; margin-bottom: .8rem; border-bottom: 1px solid var(--line); }
+  .tabs button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: .5rem 1rem; color: var(--mute); font-size: 14px; cursor: pointer; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--blue); font-weight: 600; }
+  .about { max-width: 52rem; margin: 0 auto; padding-bottom: 2rem; line-height: 1.55; }
+  .about h1 { font-size: 1.7rem; margin: .6rem 0 .3rem; } .about h2 { font-size: 1.1rem; margin: 1.8rem 0 .4rem; padding-top: .8rem; border-top: 1px solid var(--line); } .about h3 { font-size: .95rem; margin: .2rem 0; }
+  .about .lead { font-size: 1.08rem; color: var(--mute); margin-top: 0; }
+  .about .chain { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; margin: 1rem 0; font: 12px var(--mono); }
+  .about .chain span { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: .35rem .6rem; } .about .chain i { color: var(--mute); font-style: normal; }
+  .about .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 2rem; } @media (max-width: 640px) { .about .cols { grid-template-columns: 1fr; } }
+  .about ul, .about ol { padding-left: 1.2rem; } .about li { margin: .35rem 0; }
+  .about dl { display: grid; grid-template-columns: 7rem 1fr; gap: .5rem 1rem; } .about dt { font-weight: 600; } .about dd { margin: 0; }
+  .about .fw { margin: .6rem 0 0; max-width: none; }
+  .about .open-lab { font-size: 14px; padding: .5rem 1rem; }
+  .fw { max-width: var(--page-w); margin: .6rem auto 0; background: #fff; border: 1px solid var(--line, #d5dbd3); border-radius: 6px; padding: .7rem .9rem; font-size: .93rem; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
+  .fw.done { background: none; border: 0; padding: .2rem 0; color: var(--mute); font-size: 12px; }
+  .fw input[type=text] { flex: 1 1 18rem; font: 12px var(--mono); padding: .3rem .4rem; }
+  .fw .fwmsg { flex-basis: 100%; font-size: 12px; color: var(--mute); }
+  .fw .fwmsg.err { color: #b3261e; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; max-width: var(--page-w); margin: 0 auto; }
   .bar-left { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
   #status { color: var(--mute); }
   .pill { display: inline-flex; align-items: center; gap: .5rem; font: 12px var(--mono); letter-spacing: .03em; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; }
   .pill i { width: 8px; height: 8px; border-radius: 50%; background: #9aa1ab; display: inline-block; }
   .pill.on i { background: #2f9e44; } .pill.warn i { background: #e8890c; }
-  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 250px minmax(0, 1fr); gap: 1.2rem; margin: 1rem 0 .6rem; align-items: start; }
-  .modem { min-width: 0; width: 100%; }
+  :root { --xw: 300px; --cgap: 3.4rem; --page-w: calc(500px * 2 + var(--xw) + var(--cgap) * 2); }   /* two modems, the exchange between them, room for the cables */
+  .stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--xw) minmax(0, 1fr); gap: var(--cgap); margin: 1rem auto .6rem; align-items: start; max-width: var(--page-w); }
+  .modem { min-width: 0; width: 100%; max-width: 500px; }
+  .stage > section.modem:nth-of-type(1) { justify-self: end; } .stage > section.modem:nth-of-type(2) { justify-self: start; }
   .mhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .45rem; }
   .mtitle { font-weight: 600; } .mmeta { font: 12px var(--mono); color: var(--mute); }
   .modem svg { width: 100%; height: auto; display: block; }
-  .term { background: #0a0c0b; border-radius: 10px; overflow: hidden; margin-top: .6rem; display: flex; flex-direction: column; }
-  .term pre { background: transparent; color: var(--green); margin: 0; padding: .65rem .8rem; height: 27vh; min-height: 180px; overflow: auto; font: 17px/1.35 VT100, ui-monospace, monospace; outline: none; }
-  .term form.send { display: flex; align-items: center; gap: .5rem; border-top: 1px solid #1a1f1c; padding: .3rem .6rem; }
-  .term .prompt { color: #3f8f4a; font-family: var(--mono); }
-  .term input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--green); font: 14px var(--mono); padding: .35rem 0; }
-  .term input::placeholder { color: #2c5c36; }
-  .term button.ghost { background: transparent; color: #7fae85; border-color: #26302a; padding: .2rem .55rem; font-size: 12px; }
-  .dialled { font: 14px var(--mono); color: #2f9e44; margin: .5rem 0 0; min-height: 1.3em; }
+  /* screens: plain panels; the blinking cursor in the terminals is the cue that they are live */
+  .screen { border: 1px solid #d2dcd0; border-radius: 10px; overflow: hidden; }
+  .term { background: #f8f9f7; border: 1px solid #b4bdb6; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .term pre::after { content: '\2588'; color: #a7cfb3; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .term pre { background: transparent; color: #2b3a31; scrollbar-width: thin; scrollbar-color: #c3cbc4 transparent; margin: 0; padding: .65rem .8rem; height: 21vh; min-height: 216px; overflow: auto; font: 17px/1.35 VT100, ui-monospace, monospace; outline: none; }
+  .term pre::-webkit-scrollbar { width: 10px; } .term pre::-webkit-scrollbar-track { background: transparent; } .term pre::-webkit-scrollbar-thumb { background: #c3cbc4; border-radius: 5px; border: 2px solid #f8f9f7; }
+  .term:focus-within { border-color: #1f8a3a; box-shadow: 0 0 0 2px #1f8a3a, 0 0 10px 2px rgba(47,158,68,.35); }   /* the terminal you are typing in */
+  .term pre:focus { outline: 0; }
+  .term .thead { cursor: default; }
+  .term button.ghost { background: #fff; color: #2b3a31; border-color: var(--line); padding: .2rem .55rem; font-size: 12px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .8rem .9rem; }
   .cap { font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
   .chead { display: flex; justify-content: space-between; align-items: center; margin-bottom: .6rem; }
   .chead b { font: 600 13px var(--mono); letter-spacing: .06em; }
+  .scap { font: 11px var(--mono); color: var(--mute); margin-left: .6rem; }
   .tag { font: 11px var(--mono); color: var(--mute); background: #eef0f3; border-radius: 5px; padding: .1rem .45rem; }
   .row { display: flex; justify-content: space-between; align-items: center; font: 12px var(--mono); background: #f3f4f6; border-radius: 6px; padding: .4rem .6rem; margin-bottom: .4rem; }
   .row b { font-weight: 600; }
-  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: .3rem; margin: .45rem 0 .7rem; }
-  .keys span { text-align: center; font: 12px var(--mono); padding: .35rem 0; border-radius: 5px; background: #f3f4f6; color: #555b64; border: 1px solid #eceef1; }
-  .keys span.hot { background: var(--blue); color: #fff; border-color: var(--blue); }
-  .ringbar { height: 6px; border-radius: 3px; background: #eceef1; overflow: hidden; margin: .15rem 0 .55rem; }
+  .lcd { background: #e5ece3; color: #3b5c44; border: 1px solid #d2dcd0; font: 17px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .2em; border-radius: 6px; padding: .4rem .6rem; min-height: 1.2em; overflow: hidden; white-space: nowrap; }
+  /* the exchange: a rack panel with two line cards and a crosspoint, wired to the modems */
+  .rack { position: relative; align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; gap: .6rem; margin-top: calc(14px * 1.45 + .45rem); margin-bottom: 22px;   /* 22px: the status line under each terminal, so the bottoms line up */
+          padding: .85rem .95rem 1rem; border-radius: 12px; color: var(--ink); background: var(--card); border: 1px solid var(--line); }
+  .rack-head { display: flex; justify-content: space-between; align-items: center; margin: .15rem .4rem .7rem; }
+  .rack-head b { font: 600 12px var(--mono); letter-spacing: .16em; color: var(--ink); }
+  .lcap { font: 10px var(--mono); letter-spacing: .1em; color: var(--mute); text-transform: uppercase; }
+  .cards { display: grid; grid-template-columns: 112px 56px 112px; justify-content: center; align-items: center; gap: 0; }
+  .lcard { position: relative; background: #f3f4f6; border: 0; border-radius: 6px; padding: .45rem .5rem .5rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: .2rem; min-width: 0; }
+  .lcard b { font: 600 11px var(--mono); color: var(--mute); white-space: nowrap; }
+  .lcard.off b { color: #2f9e44; }
+  .lcard .led { position: absolute; top: .5rem; right: .5rem; width: 8px; height: 8px; border-radius: 50%; background: #c9ced5; }
+  .lcard.off .led { background: #2f9e44; }
+  .lcard .jack { position: absolute; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%; background: #fff; border: 2px solid #8f98a2; }
+  #card-A .jack { left: -5px; } #card-B .jack { right: -5px; }
+  .xp { position: relative; z-index: 1; width: 56px; height: 44px; overflow: visible; }   /* above the cards, so the contacts at their edges are not hidden */
+  .xpd { fill: #fff; stroke: #98a09a; stroke-width: 2; }
+  .xparm { stroke: #98a09a; stroke-width: 2.6; stroke-linecap: round; transition: stroke .3s; }   /* the line cable between the two contacts: same colour and width as the cables to the modems */
+  .rack.closed .xparm { stroke: #9ccfab; }
+  .rack.closed .xpd { stroke: #9ccfab; fill: #9ccfab; }
+  .rack .lcd { margin-bottom: .2rem; }
+  .vubox { background: #e5ece3; border: 1px solid #d2dcd0; border-radius: 6px; padding: .45rem .55rem; }
+  .vurow { display: flex; align-items: center; gap: .6rem; margin: .3rem 0; } .vurow .vl { font: 600 10px var(--mono); letter-spacing: .08em; color: #3b5c44; white-space: nowrap; width: 7ch; }
+  canvas.vu { flex: 1; min-width: 0; width: 100%; height: 12px; display: block; }
+  #call-time { text-align: center; letter-spacing: .3em; }
+  .ringrow { display: flex; justify-content: space-between; margin: 0 0 .3rem; }
+  .ringbar { height: 6px; border-radius: 3px; background: #eceef1; border: 0; overflow: hidden; margin: .15rem 0 .1rem; }
   .ringbar i { display: block; height: 100%; width: 0; background: #e8890c; transition: width .25s; }
   .ringbar.on i { width: 100%; }
-  .lower { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(0, 1.7fr) minmax(250px, 1fr); gap: 1.2rem; margin-top: 1.1rem; align-items: stretch; }
+  /* the cables from each modem to its line card: grey idle, green off-hook, amber while ringing, pale yellow for tones, pulses while the line is live */
+  svg.cables { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 3; }
+  .cable path { fill: none; stroke-linecap: round; }
+  .cable .outline { display: none; }
+  .cable .core { stroke: #98a09a; stroke-width: 2.6; transition: stroke .3s; }
+  .cable .pulse { stroke: #fff; stroke-width: 1.5; stroke-dasharray: 1 14; opacity: 0; }
+  .cable .plug { fill: #aab1ab; }
+  .cable.off .core, .cable.live .core { stroke: #9ccfab; }
+  .cable.ring .core { stroke: #e3b15a; } .cable.tone .core { stroke: #dccd8f; }
+  .cable.tone .pulse, .cable.ring .pulse { opacity: .95; animation: cflow .6s linear infinite; }
+  .cable.live .pulse { opacity: .6; animation: cflow 1.4s linear infinite; }
+  @keyframes cflow { to { stroke-dashoffset: -30; } }
+  .lower { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1.7fr) minmax(250px, 1fr); gap: 1.2rem; margin: 1.1rem auto 0; align-items: stretch; max-width: var(--page-w); }
   .kv { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-bottom: 1px solid var(--line); font-size: .93rem; }
   .kv span { color: var(--mute); } .kv b { font-weight: 500; text-align: right; }
   .now { margin-top: .9rem; } .now p { margin: .35rem 0 0; line-height: 1.5; }
-  .scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 310px)); gap: 1.4rem; justify-content: center; }
+  .scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 270px)); gap: 1.4rem; justify-content: center; }
   .scopebox { min-width: 0; }
   .shead, .sfoot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-  .shead { margin-bottom: .45rem; } .sfoot { margin-top: .5rem; font-size: .82rem; }
+  .shead { margin-bottom: .45rem; } .scopebox .shead, .wavebox .shead { display: flex; align-items: center; white-space: nowrap; } .scopebox .shead .scap { overflow: hidden; text-overflow: ellipsis; } .scopebox .sfoot { flex-wrap: wrap; gap: .3rem .6rem; } .scopebox .ctl { flex-wrap: wrap; row-gap: .3rem; } .shead .flip { margin: 0 0 0 auto; } .sfoot { margin-top: .5rem; font-size: .82rem; }
   .shead b { font: 600 12px var(--mono); letter-spacing: .06em; } .shead .tag { background: #e9f6ec; color: #2b7a3d; }
   .ctl { display: flex; align-items: center; gap: .4rem; } .ctl select { padding: .15rem .3rem; font-size: .82rem; } .ctl button { padding: .15rem .55rem; font-size: .8rem; }
   .ro { font: 12px var(--mono); color: var(--mute); }
   .wavebox { margin-top: 1rem; }
-  canvas.wave { display: block; width: 100%; height: auto; aspect-ratio: 6 / 1; background: #090c0b; border-radius: 10px; border: 1px solid #1d2622; }
+  canvas.wave { display: block; width: 100%; height: auto; aspect-ratio: 6 / 1; background: #e5ece3; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; background: #fff; color: var(--mute); padding: .25rem .7rem; font: 600 13px var(--mono); cursor: pointer; display: inline-flex; align-items: center; gap: .4rem; }
   .seg button + button { border-left: 1px solid var(--line); }
   .seg button.on { background: var(--blue); color: #fff; }
   .seg button.on .tag { background: rgba(255,255,255,.2); color: #fff; }
-  canvas.scope { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #090c0b; border-radius: 10px; border: 1px solid #1d2622; }
+  canvas.scope { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #e5ece3; }
   .stack { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
   .nrow { display: flex; justify-content: space-between; font-size: .93rem; margin-bottom: .3rem; } .nrow span { color: var(--mute); } .nrow b { font: 500 12px var(--mono); }
   input[type=range] { width: 100%; accent-color: var(--blue); margin: .2rem 0 .1rem; }
-  .linkbtn { background: none; border: 0; color: var(--blue); padding: 0; font-size: 12px; cursor: pointer; } .linkbtn:disabled { color: var(--blue-soft); }
+  .linkbtn { text-decoration: underline; text-underline-offset: 2px; background: none; border: 0; color: var(--blue); padding: 0; font-size: 12px; cursor: pointer; } .linkbtn:disabled { color: var(--blue-soft); }
   .load { width: 100%; border-collapse: collapse; font-size: .93rem; }
   .load th { font: 11px var(--mono); letter-spacing: .08em; color: var(--mute); text-align: right; font-weight: 500; padding: 0 0 .4rem; }
   .load th:first-child { text-align: left; }
-  .load td { padding: .5rem 0; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
-  .load td:first-child { text-align: left; color: var(--mute); white-space: nowrap; padding-right: 1rem; }
-  @media (max-width: 1250px) { .lower { grid-template-columns: 1fr 1fr; } .scopecard { grid-column: 1 / -1; order: -1; } }
-  @media (max-width: 1000px) { .stage, .lower { grid-template-columns: 1fr; } .scopes { grid-template-columns: 1fr; } }
+  .load td { padding: .5rem 0 .5rem .8rem; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+  .load td:first-child { text-align: left; color: var(--mute); white-space: nowrap; padding-left: 0; padding-right: 1rem; }
+  @media (max-width: 1000px) { .stage, .lower { grid-template-columns: 1fr; } .scopes { grid-template-columns: 1fr; } svg.cables { display: none; } .rack { margin-top: 0; margin-bottom: 0; align-self: auto; } }
+  /* SIP mode: the Lab page with modem B's panel and terminal replaced by the SIP panel */
+  #sip-panel { display: none; }
+  body[data-mode="sip"] #sip-panel { display: block; }
+  body[data-mode="sip"] #modem-B > :not(.mhead):not(#sip-panel) { display: none; }
+  .sip-panel { font-size: .85rem; }
+  .sip-t td { padding: .15rem .4rem; }
 </style>
 </head>
 <body>
 <main>
+<nav class="tabs" role="tablist"><button type="button" role="tab" id="tabbtn-about" data-tab="about">About</button><button type="button" role="tab" id="tabbtn-lab" data-tab="lab">Lab</button><button type="button" role="tab" id="tabbtn-sip" data-tab="sip">SIP</button></nav>
+<section id="tab-about" class="about" hidden>
+  <h1>Two modems, one phone line</h1>
+  <p class="lead">A pair of 1990s external modems, emulated instruction by instruction, calling each other across a simulated telephone line. Everything runs in this browser tab.</p>
+
+  <h2>What is happening</h2>
+  <p>Each modem here is a complete machine: an 80186 host processor running the control firmware, a TMS320C5x signal processor running the data-pump firmware, plus the audio codec, the serial port and the front-panel lamps. When you press Start call, one modem dials, a small telephone exchange gives it dial tone, decodes the digits and rings the other, and the two modems negotiate the way real ones did: answer tone, capability exchange, line probing, training, and finally data.</p>
+  <div class="chain" aria-label="signal path"><span>Terminal</span><i>serial</i><span>Modem A</span><i>audio</i><span>Exchange and line</span><i>audio</i><span>Modem B</span><i>serial</i><span>Terminal</span></div>
+  <div class="cols">
+    <div><h3>Real</h3><ul>
+      <li>The processors, instruction for instruction, running the modem's own firmware, unmodified.</li>
+      <li>The handshake, the training, the speed changes and the retrains: nothing here is scripted.</li>
+      <li>The numbers on the Link card: they are read from the signal processor's own memory.</li>
+    </ul></div>
+    <div><h3>Simulated</h3><ul>
+      <li>The phone line, and everything you can do to it: noise, loss, frequency shift, jitter, clicks, cuts.</li>
+      <li>The exchange: dial tone, DTMF decoding, ring, and connecting the two lines.</li>
+      <li>The terminals and the serial cables.</li>
+    </ul></div>
+  </div>
+
+  <h2>Getting started</h2>
+  <ol class="steps">
+    <li><b>Load the firmware.</b> This page contains none. Give it your own copy below; it is decoded in your browser and kept in this browser's local storage. Nothing is uploaded.
+      <div class="fw" id="fw">
+  <span><b>Firmware needed.</b> This page contains no modem firmware. Pick your own <code>SV25.XMD</code> or <code>SV20.XMD</code> (or a .zip containing it); it is decoded here in your browser and kept in its local storage, never uploaded.</span>
+  <input type="file" id="fw-file" accept=".xmd,.zip,.bin">
+  <input type="text" id="fw-url" placeholder="or a URL of the .xmd / .zip (the host must allow cross-origin requests)">
+  <button type="button" id="fw-fetch">Fetch</button>
+  <div class="fwmsg" id="fw-msg"></div>
+</div>
+    </li>
+    <li><b>Open the Lab and press Power on.</b> Both modems start and receive their setup commands, which you can see in the terminals. Choose a connect speed first if you like; it can only change while the modems are off.</li>
+    <li><b>Press Start call.</b> The caller dials, the exchange rings the answerer twice, and the handshake takes 10 to 20 seconds. The lamps and the Link card show it happening.</li>
+    <li><b>When CONNECT appears,</b> click a terminal and type, or press Send 32 kB random. Every key goes straight to the modem.</li>
+  </ol>
+  <p><button type="button" class="open-lab" id="open-lab">Open the Lab</button></p>
+
+  <h2>Things to try</h2>
+  <ul>
+    <li>Slide <b>White noise</b> up and watch SNR fall and the speed step down by itself.</li>
+    <li>Add <b>Frequency shift</b> or <b>Phase jitter</b>: the I/Q dots smear, the modems retrain.</li>
+    <li>Press <b>Click</b> or <b>Cut 1 s</b> and see whether the call survives.</li>
+    <li>Choose <b>300 &mdash; V.21</b> before Power on. It has no constellation at all, and the spectrum shows two tones instead.</li>
+    <li>Turn <b>Listen</b> on and hear the handshake.</li>
+    <li>Press <b>Save snapshot</b> once connected; <b>Load call</b> later resumes it at once.</li>
+    <li>On a slower computer, set the instruments to <b>off</b>.</li>
+  </ul>
+
+  <h2>Reading the screens</h2>
+  <dl>
+    <dt>Lamps</dt><dd>On the modem's front panel: TR terminal ready, CD carrier detected, OH off hook, SD and RD data sent and received, MR modem ready, CS clear to send, SYN synchronous mode, ARQ error-correction, HS high speed, AA auto-answer.</dd>
+    <dt>Link</dt><dd>What the signal processor measures during the call: receive and transmit speed, signal-to-noise ratio, symbol rate, carrier frequency, and how far the carrier and the symbol clock have drifted, in parts per million.</dd>
+    <dt>I / Q</dt><dd>The points the modem sends, plotted by in-phase (I) and quadrature (Q) value. A regular grid of dots means QAM. The number of dots grows with speed.</dd>
+    <dt>Spectrum</dt><dd>Which frequencies the modem puts on the line, from 0 Hz upwards, in decibels below full scale.</dd>
+    <dt>Signal</dt><dd>The audio samples themselves; the slider sets how much time fits across.</dd>
+    <dt>FSK</dt><dd>The slow 300 bit/s modes (V.21, Bell 103) switch between two tones for 0 and 1. With no phase or amplitude symbols there is nothing to plot on I/Q.</dd>
+  </dl>
+
+  <h2>About</h2>
+  <p>The emulators, the line and the exchange are original code. The firmware is not part of this page and is not distributed with it. Product names and trademarks belong to their owners; this page is not affiliated with any modem maker.</p>
+</section>
+<div id="tab-lab" hidden>
   <header class="bar">
     <div class="bar-left">
-      <button id="go">Power on</button>
-      <button id="dial" disabled>Start call</button>
-      <button id="rand" disabled>Send 32 kB random</button>
-      <button id="hangup" disabled>Hang up</button>
+      <div class="grp">
+        <button id="go">Power on</button>
+        <button id="dial" disabled>Start call</button>
+        <button id="hangup" disabled>Hang up</button>
+      </div>
       <label>Connect speed <select id="speed" title="Applies at Power on: both modems get AT&N with this value. Fewer bits per symbol means fewer points in the constellation.">
         <option value="">Auto (up to 33600)</option>
         <option value="6">9600 &mdash; 12 dots</option>
         <option value="7">12000 &mdash; 16 dots</option>
         <option value="8">14400 &mdash; 28 dots</option>
         <option value="9">16800 &mdash; 48 dots</option>
+        <option value="v21">300 &mdash; V.21</option>
+        <option value="b103">300 &mdash; Bell 103</option>
       </select></label>
       <span id="status">Idle.</span>
     </div>
-    <div class="pill" id="linepill"><i></i><span id="linetext">POWER OFF</span></div>
+    <div class="grp">
+      <label class="flip" title="On: always hear the line (the modems' audio, dial tone and ring). Off: each modem's own speaker setting decides (ATM, ATL)."><input type="checkbox" id="listen"><span class="knob"></span>Listen</label>
+      <button id="speed-rand" class="ghost" disabled title="Both modems send each other random bytes (0 to 254; the emulated serial capture drops 0xFF) at once, as fast as the link carries them. Random bytes do not compress, so this measures the link itself. The page times it and checks every byte.">Speed: random</button>
+      <button id="speed-text" class="ghost" disabled title="Both modems send each other the opening of Pride and Prejudice (Jane Austen, 1813, public domain), which compresses well, so V.42bis can beat the link rate (the serial port limits it to about 92 kbit/s).">Speed: text</button>
+      <button id="snap-save" class="ghost" disabled title="Save the state of both modems now. It is also saved automatically a few seconds after CONNECT.">Save snapshot</button>
+      <button id="snap-load" class="ghost" disabled title="Nothing saved yet.">Load call</button>
+      <button id="snap-down" class="ghost" disabled title="Download the saved snapshot as a file. It holds the modems' whole memory, your firmware image included: keep it private.">Download</button>
+      <button id="snap-up" class="ghost" title="Load a snapshot file made by Download (from the same build of the page).">Upload</button>
+      <input type="file" id="snap-file" accept=".snap" hidden>
+    </div>
   </header>
-  <div class="stage">
+  <div class="stage" id="stage">
     <section class="modem">
-      <div class="mhead"><span class="mtitle">A &middot; answerer</span><span class="mmeta">answers on RING</span></div>
+      <div class="mhead"><span class="mtitle">A &middot; answerer</span></div>
       <div id="panel-A"></div>
-      <div class="term"><pre id="log-A"></pre>
-        <form class="send" data-role="A"><span class="prompt">&gt;</span><input type="text" placeholder="Type AT command or message..." autocomplete="off"><button class="ghost">Send</button><button type="button" class="ghost esc" title="Back to command mode without hanging up: sends +++ after a guard time of silence">+++</button></form></div>
-      <div class="dialled">dialled: <span id="dialled-A"></span></div>
+      <div class="serial" id="serial-A" title="The serial cable between the terminal (the DTE) and the modem."><svg viewBox="0 0 80 30" width="80" height="30" aria-hidden="true"><path class="so" d="M40 0 C40 12 46 18 46 30"/><path class="sc" d="M40 0 C40 12 46 18 46 30"/><rect class="port" x="33" y="-2.5" width="14" height="5" rx="2"/><rect class="port" x="39" y="27.5" width="14" height="5" rx="2"/></svg></div>
+      <div class="term"><div class="shead thead"><span><b>TERMINAL</b><span class="scap">type here</span></span><label class="flip" title="Show what you type at once. Off: only what the modem or the far end sends back appears."><input type="checkbox" id="echo-A"><span class="knob"></span>Local echo</label></div><pre id="log-A"></pre></div>
+      <div class="termstat" id="ts-A"></div>
     </section>
-    <aside class="card" id="exch">
-      <div class="chead"><b>EXCHANGE</b><span class="tag" id="exch-tag">IDLE</span></div>
-      <div class="row"><span>LINE A</span><b id="hook-A">ON-HOOK 48V</b></div>
-      <div class="row"><span>LINE B</span><b id="hook-B">ON-HOOK 48V</b></div>
-      <div class="chead" style="margin:.8rem 0 0"><span class="cap">DTMF decoder</span><span class="cap" id="dtmf-hz" style="color:var(--blue)">-- / -- Hz</span></div>
-      <div class="keys" id="keys"></div>
-      <div class="chead" style="margin:0"><span class="cap">Ring gen</span><span class="cap" id="ring-v">0V / OFF</span></div>
-      <div class="ringbar" id="ringbar"><i></i></div>
-      <div class="cap" id="hybrid" style="text-transform:none;letter-spacing:0">2-wire hybrid open</div>
+    <aside class="rack" id="exch">
+      <div class="rsec">
+        <div class="rack-head"><b>CENTRAL OFFICE</b></div>
+        <div class="cards">
+          <div class="lcard" id="card-A"><i class="jack" id="jack-A"></i><i class="led"></i><span class="lcap">LINE A</span><b id="hook-A">ON-HOOK</b></div>
+          <svg class="xp" viewBox="0 0 56 44" aria-hidden="true"><circle class="xpd" cx="0" cy="22" r="4"/><circle class="xpd" cx="56" cy="22" r="4"/><line class="xparm" x1="0" y1="22" x2="56" y2="22"/></svg>
+          <div class="lcard" id="card-B"><i class="jack" id="jack-B"></i><i class="led"></i><span class="lcap">LINE B</span><b id="hook-B">ON-HOOK</b></div>
+        </div>
+      </div>
+      <div class="rsec">
+        <div class="lcap" style="margin-bottom: .35rem">DTMF RECEIVER</div>
+        <div class="lcd" id="dtmf-lcd" title="The digits the exchange has decoded from the caller's tones. Cleared when the caller goes off-hook.">&nbsp;</div>
+      </div>
+      <div class="rsec">
+        <div class="ringrow"><span class="lcap">RING GENERATOR</span><span class="lcap" id="ring-v">OFF</span></div>
+        <div class="ringbar" id="ringbar"><i></i></div>
+      </div>
+      <div class="rsec">
+        <div class="lcap" style="margin-bottom: .35rem">LINE LEVEL</div>
+        <div class="vubox">
+          <div class="vurow"><span class="vl">LINE A</span><canvas class="vu" id="vu-A" width="240" height="12"></canvas></div>
+          <div class="vurow"><span class="vl">LINE B</span><canvas class="vu" id="vu-B" width="240" height="12"></canvas></div>
+        </div>
+      </div>
+      <div class="rsec">
+        <div class="lcap" style="margin-bottom: .35rem">CALL TIME</div>
+        <div class="lcd" id="call-time" title="Time since both lines went off-hook.">--:--</div>
+      </div>
     </aside>
-    <section class="modem">
-      <div class="mhead"><span class="mtitle">B &middot; caller</span><span class="mmeta">dials 555-1234</span></div>
+    <section class="modem" id="modem-B">
+      <div class="mhead"><span class="mtitle" id="mtitle-B">B &middot; caller</span></div>
       <div id="panel-B"></div>
-      <div class="term"><pre id="log-B"></pre>
-        <form class="send" data-role="B"><span class="prompt">&gt;</span><input type="text" placeholder="Type ATDT 5551234 or chat text..." autocomplete="off"><button class="ghost">Send</button><button type="button" class="ghost esc" title="Back to command mode without hanging up: sends +++ after a guard time of silence">+++</button></form></div>
-      <div class="dialled">dialled: <span id="dialled-B"></span></div>
+      <div id="sip-panel" class="sip-panel">
+        <p class="scap">SIP trunk: one modem (the caller's settings) through <code>tools/cline/gateway.py</code>. See README-sip.md.</p>
+        <table class="sip-t">
+          <tr><td>Gateway</td><td><input id="sip-url" value="ws://127.0.0.1:8777" size="22"></td></tr>
+          <tr><td>Destination</td><td><select id="sip-dest"><option value="dmodem" selected>D-Modem 79.137.67.20:5060</option><option value="binmodem">BinModem (gateway host)</option></select></td></tr>
+          <tr><td>Tx / rx gain</td><td><input id="sip-tx" type="number" step="0.05" min="0" max="4" value="1" size="4"> <input id="sip-rx" type="number" step="0.05" min="0" max="4" value="2" size="4"></td></tr>
+          <tr><td>Call state</td><td id="sip-call-state">off</td></tr>
+          <tr><td>Codec rate</td><td id="sip-codec">-</td></tr>
+          <tr><td>Gateway</td><td id="sip-gw">-</td></tr>
+          <tr><td>sim / wall</td><td id="sip-speed">-</td></tr>
+          <tr><td>Headroom</td><td id="sip-headroom">-</td></tr>
+          <tr><td>Worst step</td><td id="sip-worst">-</td></tr>
+        </table>
+        <p><button type="button" id="sip-btn-off" class="ghost">Power off</button></p>
+        <p class="scap" id="sip-status">Not in SIP mode.</p>
+      </div>
+      <div class="serial" id="serial-B" title="The serial cable between the terminal (the DTE) and the modem."><svg viewBox="0 0 80 30" width="80" height="30" aria-hidden="true"><path class="so" d="M40 0 C40 12 46 18 46 30"/><path class="sc" d="M40 0 C40 12 46 18 46 30"/><rect class="port" x="33" y="-2.5" width="14" height="5" rx="2"/><rect class="port" x="39" y="27.5" width="14" height="5" rx="2"/></svg></div>
+      <div class="term"><div class="shead thead"><span><b>TERMINAL</b><span class="scap">type here</span></span><label class="flip" title="Show what you type at once. Off: only what the modem or the far end sends back appears."><input type="checkbox" id="echo-B"><span class="knob"></span>Local echo</label></div><pre id="log-B"></pre></div>
+      <div class="termstat" id="ts-B"></div>
     </section>
+    <svg class="cables" id="cables" aria-hidden="true">
+      <g class="cable" id="cable-A"><path class="outline"/><path class="core"/><path class="pulse"/><rect class="plug" width="6" height="14" rx="2"/></g>
+      <g class="cable" id="cable-B"><path class="outline"/><path class="core"/><path class="pulse"/><rect class="plug" width="6" height="14" rx="2"/></g>
+    </svg>
   </div>
   <div class="lower">
     <div class="card">
-      <div class="chead"><b>CALL</b><span class="tag" id="call-tag">IDLE</span></div>
-      <div class="kv"><span>Connect</span><b id="t-connect">-</b></div>
-      <div class="kv"><span>Messages</span><b id="t-msgs">-</b></div>
-      <div class="kv"><span>Sim time reached</span><b id="t-sim">-</b></div>
-      <div class="now"><div class="cap">What the modem is doing</div><p id="narrative">Powered off. Press Power on to start both modems.</p></div>
+      <div class="chead"><b title="Read live from the DSP's own measurement cells, the ones the firmware prints in ATI11.">LINK</b><span class="scap">measured by the DSP</span></div>
+      <table class="load">
+        <tr><th></th><th>A</th><th>B</th></tr>
+        <tr><td>Receive speed</td><td id="l-A-rxs">-</td><td id="l-B-rxs">-</td></tr>
+        <tr><td>Transmit speed</td><td id="l-A-txs">-</td><td id="l-B-txs">-</td></tr>
+        <tr><td>SNR</td><td id="l-A-snr">-</td><td id="l-B-snr">-</td></tr>
+        <tr><td>Symbol rate</td><td id="l-A-sym">-</td><td id="l-B-sym">-</td></tr>
+        <tr><td>Carrier</td><td id="l-A-fc">-</td><td id="l-B-fc">-</td></tr>
+        <tr><td>Carrier offset</td><td id="l-A-car">-</td><td id="l-B-car">-</td></tr>
+        <tr><td>Timing offset</td><td id="l-A-tim">-</td><td id="l-B-tim">-</td></tr>
+      </table>
+      <div class="shead" style="margin-top:1rem"><b title="What each modem received while the speed test ran. Press Speed test in the toolbar once connected.">SPEED TEST</b><span class="scap" id="st-kind">received, both ways at once</span></div>
+      <table class="load">
+        <tr><th></th><th>A</th><th>B</th></tr>
+        <tr><td>Received</td><td id="st-A-got">-</td><td id="st-B-got">-</td></tr>
+        <tr><td>Rate</td><td id="st-A-rate">-</td><td id="st-B-rate">-</td></tr>
+        <tr><td>Of link rate</td><td id="st-A-pct">-</td><td id="st-B-pct">-</td></tr>
+        <tr><td>Bad bytes</td><td id="st-A-bad">-</td><td id="st-B-bad">-</td></tr>
+      </table>
+      <div class="shead" style="margin-top:1rem"><b title="Simulated seconds per wall-clock second over the last second. 1.00x = real time.">SIM / WALL TIME</b><span class="scap">slower modem: <b id="rt-ratio">--</b></span></div>
+      <table class="load">
+        <tr><th></th><th>A</th><th>B</th></tr>
+        <tr title="Simulated / wall time, last second"><td>Now</td><td id="rt-A-now">-</td><td id="rt-B-now">-</td></tr>
+        <tr title="Lowest one-second value since Power on (first 2 s excluded)"><td>Lowest</td><td id="rt-A-min">-</td><td id="rt-B-min">-</td></tr>
+        <tr title="How fast it would run without pacing: simulated time / compute time"><td>Headroom</td><td id="rt-A-head">-</td><td id="rt-B-head">-</td></tr>
+        <tr title="Compute time of the slowest simulation step, relative to the time it simulates. Above 1.0 that step ran slower than real time."><td>Worst step</td><td id="rt-A-worst">-</td><td id="rt-B-worst">-</td></tr>
+      </table>
     </div>
     <div class="card scopecard">
       <div class="chead"><b>INSTRUMENTS</b>
         <span class="seg" role="group" aria-label="Modem">
-          <button type="button" class="on" data-side="A">A <span class="tag" id="stag-A">IDLE</span></button><button type="button" data-side="B">B <span class="tag" id="stag-B">IDLE</span></button>
+          <button type="button" class="on" data-side="A"><span id="stag-A">Modem A</span></button><button type="button" data-side="B"><span id="stag-B">Modem B</span></button><button type="button" data-side="off" title="Instruments off: nothing is drawn or sampled, for slower computers">Off</button>
         </span>
       </div>
       <div class="scopes">
         <div class="scopebox">
-          <div class="shead"><b>I / Q</b><span class="tag" title="The points the selected modem transmits (the mapper's output), read from DSP data memory 0x0224 / 0x0228. Not the received, equalized points.">transmitted points</span></div>
-          <canvas class="scope" id="scope-iq" width="440" height="440"></canvas>
-          <div class="sfoot"><span class="ctl"><label>zoom</label><select id="iq-zoom"><option value="auto">auto</option><option value="1">&times;1</option><option value="2">&times;2</option><option value="4">&times;4</option></select><button type="button" class="ghost" id="iq-reset">reset</button></span><span class="ro" id="ro-iq"></span></div>
+          <div class="shead"><b title="The points the selected modem receives after equalisation (DSP data memory 0x0300 / 0x0302), with the trellis-decoded decisions (0x0239 / 0x023C) on top in yellow. Noise on the line scatters the received points.">I / Q</b><span class="scap" id="iq-cap">received</span><label class="flip" title="Show or stop this instrument. Off: it is not drawn, and the modems stop sampling the scope cells."><input type="checkbox" id="inst-iq" checked><span class="knob"></span></label></div>
+          <div class="screen" style="position:relative"><canvas class="scope" id="scope-iq" width="440" height="440"></canvas><canvas id="scope-dec" width="440" height="440" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas></div>
+          <div class="sfoot"><span class="ctl"><label class="flip" title="The received (equalised) points"><input type="checkbox" id="ly-rx" checked><span class="knob"></span>received</label><label class="flip" title="The trellis-decoded decisions, drawn on top in yellow"><input type="checkbox" id="ly-dec"><span class="knob"></span>decoded</label></span><span class="ro" id="ro-iq"></span></div>
         </div>
         <div class="scopebox">
-          <div class="shead"><b>SPECTRUM</b><span class="tag" title="Frequency content of the audio the selected modem puts on the line (1024-point FFT, Hann window).">audio sent</span></div>
-          <canvas class="scope" id="scope-fft" width="440" height="440"></canvas>
+          <div class="shead"><b title="Frequency content of the audio the selected modem puts on the line (1024-point FFT, Hann window).">SPECTRUM</b><span class="scap">sent audio</span><label class="flip" title="Show or stop this instrument."><input type="checkbox" id="inst-fft" checked><span class="knob"></span></label></div>
+          <div class="screen"><canvas class="scope" id="scope-fft" width="440" height="440"></canvas></div>
           <div class="sfoot"><span class="ro">0 &ndash; <span id="fft-nyq">3.6</span> kHz &middot; dB full scale</span><span class="ro" id="ro-fft"></span></div>
         </div>
       </div>
       <div class="wavebox">
-        <div class="shead"><b>SIGNAL</b><span class="tag" title="The samples the selected modem sends, as they leave the codec. Last 512 samples, started on a rising zero crossing.">audio sent &middot; raw</span></div>
-        <canvas class="wave" id="scope-wave" width="900" height="150"></canvas>
+        <div class="shead"><b title="The samples the selected modem sends, as they leave the codec. Started on a rising zero crossing; the slider sets the time base.">SIGNAL</b><span class="scap">sent audio, over time</span><label class="flip" title="Show or stop this instrument."><input type="checkbox" id="inst-wave" checked><span class="knob"></span></label></div>
+        <div class="screen"><canvas class="wave" id="scope-wave" width="900" height="150"></canvas></div>
         <div class="sfoot"><span class="ro" id="wave-span">-</span><span class="ro" id="wave-pk">-</span></div>
+        <input type="range" id="wave-n" min="64" max="896" step="32" value="512" title="Time base: how many samples across the screen">
       </div>
     </div>
     <div class="stack">
     <div class="card">
-      <div class="chead"><b>LINE NOISE</b><button type="button" class="linkbtn" id="noise-clean">Clean line</button></div>
+      <div class="chead"><b>LINE</b><button type="button" class="linkbtn" id="noise-clean">Reset</button></div>
       <div class="nrow"><span>White noise (AWGN)</span><b id="noise-val">0% &middot; clean</b></div>
-      <input type="range" id="noise" min="0" max="30" step="0.5" value="0" title="Noise added to what each modem hears, as a percentage of a typical received signal level">
-      <div class="cap" style="text-transform:none;letter-spacing:0;margin-top:.35rem">Added to what each modem hears. 100% would equal the signal.</div>
-    </div>
-    <div class="card">
-      <div class="chead"><b>MODEM LOAD</b><span class="tag">simulation</span></div>
-      <table class="load">
-        <tr><th></th><th>A</th><th>B</th></tr>
-        <tr><td>Sim time</td><td id="s-A-sim">-</td><td id="s-B-sim">-</td></tr>
-        <tr><td>Speed vs real time</td><td id="s-A-x">-</td><td id="s-B-x">-</td></tr>
-        <tr><td>Text in</td><td id="s-A-bps">-</td><td id="s-B-bps">-</td></tr>
-        <tr><td>CPU</td><td id="s-A-cpu">-</td><td id="s-B-cpu">-</td></tr>
-        <tr><td>Audio buffered</td><td id="s-A-rx">-</td><td id="s-B-rx">-</td></tr>
-      </table>
+      <input type="range" id="noise" min="0" max="100" step="0.5" value="0" title="Noise added to what each modem hears, as a percentage of a typical received signal level">
+      <div class="nrow" style="margin-top:.5rem"><span>Measured SNR (DSP)</span><b id="noise-snr">-</b></div>
+      <div class="nrow" style="margin-top:.7rem"><span>Line loss</span><b id="att-val">0 dB</b></div>
+      <input type="range" id="att" min="0" max="40" step="1" value="0" title="Attenuation of the line, in dB. The noise stays, so SNR falls with it">
+      <div class="nrow" style="margin-top:.5rem"><span>Frequency shift</span><b id="fsh-val">0 Hz</b></div>
+      <input type="range" id="fsh" min="-20" max="20" step="0.5" value="0" title="Shifts every tone by this many Hz, as a carrier system with a drifting oscillator does">
+      <div class="nrow" style="margin-top:.5rem"><span>Phase jitter (20 Hz)</span><b id="jit-val">0&deg;</b></div>
+      <input type="range" id="jit" min="0" max="30" step="1" value="0" title="Peak phase wobble at 20 Hz; smears the constellation">
+      <div class="nrow" style="margin-top:.5rem"><span>Impulse noise</span><b id="imp-val">off</b></div>
+      <input type="range" id="imp" min="0" max="20" step="0.5" value="0" title="Random clicks per second">
+      <div class="nrow" style="margin-top:.5rem"><span>Echo (multipath)</span><b id="echo-val">off</b></div>
+      <input type="range" id="echo" min="0" max="80" step="1" value="0" title="A delayed, weaker copy of the signal is added: the line now distorts it, and the equalizer has to learn to undo that">
+      <div class="nrow" style="margin-top:.5rem"><span>Echo delay</span><b id="echod-val">2.0 ms</b></div>
+      <input type="range" id="echod" min="0.2" max="8" step="0.1" value="2" title="How late the echo arrives">
+      <div class="nrow" style="margin-top:.6rem;justify-content:flex-start;gap:.9rem"><button type="button" class="linkbtn" id="click-now">Click</button><button type="button" class="linkbtn" id="drop-100">Cut 100 ms</button><button type="button" class="linkbtn" id="drop-1000">Cut 1 s</button></div>
     </div>
     </div>
   </div>
+</div>
 </main>
 <script src="panel.js"></script>
 <script>
@@ -187,43 +409,38 @@ const GAIN = 0.5;           // link default
 // 6 = 9600, 7 = 12000, 8 = 14400, 9 = 16800; empty leaves the speed to the modems (33600 on this line).
 function setupScripts() {
   const n = document.getElementById('speed').value;
-  const speed = n ? [[3.0, 'AT&N' + n + '\r']] : [];
+  // 300 bit/s: V.21 needs S27 bit 0 ("enables V.21 modulation at 300 bps"); without it the modem uses Bell 103 (ATB1 selects it explicitly).
+  const speed = n === 'v21' ? [[3.0, 'AT&N1\r']] : n === 'b103' ? [[3.0, 'AT&N1\r'], [4.0, 'ATS27=0\r'], [5.0, 'ATB1\r']] : n ? [[3.0, 'AT&N' + n + '\r']] : [];
   return {
-    A: [[1.0, 'AT\r'], [2.0, 'ATQ0V1\r'], ...speed],     // answerer: host answers RING with ATA
-    B: [[1.0, 'AT\r'], [2.0, 'ATQ0V1X3\r'], ...speed],   // setup only; Start call dials 5551234 (X3: no dial tone)
+    A: [[1.0, 'AT\r'], [1.5, 'AT&B1\r'], [2.0, 'ATQ0V1\r'], ...speed],     // answerer: the exchange waits for two rings, then the host sends ATA
+    B: [[1.0, 'AT\r'], [1.5, 'AT&B1\r'], [2.0, 'ATQ0V1X3\r'], ...speed],   // setup only; Start call dials 5551234 (X3: the modem does not listen for dial tone, it waits S6 and dials)
   };
 }
 
 const $ = (id) => document.getElementById(id);
 const logEls = { A: $('log-A'), B: $('log-B') }, statusEl = $('status');
 
-// Typing in a modem's box sends that text into the modem's serial port.
-for (const form of document.querySelectorAll('form.send')) {
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const role = form.dataset.role, box = form.querySelector('input');
-    if (!box.value) return;
-    if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
-    workers[role].postMessage({ cmd: 'send', text: box.value + '\r' });
-    box.value = '';
-  });
-}
-// "+++ escape": the Hayes escape back to command mode without hanging up. The modem only treats +++ as an
-// escape after a guard time (S12, 1 s) with nothing sent before it and nothing after it, measured in the
-// modem's simulated time, which can run slower than the wall clock. So the worker sends it, not the page.
-for (const btn of document.querySelectorAll('form.send .esc')) {
-  btn.addEventListener('click', () => {
-    const role = btn.closest('form').dataset.role;
-    if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
-    workers[role].postMessage({ cmd: 'escape' });
-    statusEl.textContent = 'Modem ' + role + ': +++ goes out after 1.2 s of modem time of silence; do not type for ~2.5 s. When OK appears you are in command mode: ATO returns online, ATH hangs up.';
-  });
-}
 let workers = {}, rec = { A: [], B: [] }, dte = { A: '', B: '' }, doneCount = 0;
 // Characters each modem has received from the far end, for the text-in rate.
 const textIn = { A: 0, B: 0 }, textLast = { A: 0, B: 0 }, textWall = { A: 0, B: 0 };
 let stats = {};
 let ataSent = false;
+const SNAP_FMT = 1, SNAP_KEY = 'call';
+const WORKER_BUILD = 'r60';   // change when worker.js or the modem build changes: a browser may keep serving old cached copies
+let autoSaved = false, snapBusy = false, buildVer = '?', snapInfo = null, snapErr = '';
+const snapWait = { A: null, B: null };
+const dmWait = { A: null, B: null };
+const dmChain = { A: Promise.resolve(), B: Promise.resolve() };
+function readDm(role, addrs) {   // one request at a time per modem, each with its own time limit
+  const p = dmChain[role].then(() => new Promise((res) => {
+    if (!workers[role]) { res(null); return; }
+    const to = setTimeout(() => { if (dmWait[role] === done) dmWait[role] = null; res(null); }, 1500);
+    const done = (v) => { clearTimeout(to); res(v); };
+    dmWait[role] = done; workers[role].postMessage({ dm: addrs });
+  }));
+  dmChain[role] = p.catch(() => {});
+  return p;
+}
 let panels = {};
 
 // Line noise slider: white noise added to what each modem hears (see worker.js), live during a call.
@@ -233,34 +450,54 @@ function applyNoise() {
   for (const w of Object.values(workers)) w.postMessage({ noise: pct / 100 });
 }
 $('noise').addEventListener('input', applyNoise);
-$('noise-clean').addEventListener('click', () => { $('noise').value = 0; applyNoise(); });
+// The other impairments (worker.js shape()). lineParams() is also sent when a worker starts or a call is restored.
+function lineParams() {
+  return { attDb: Number($('att').value), freqHz: Number($('fsh').value), jitDeg: Number($('jit').value), impPerSec: Number($('imp').value), echoPct: Number($('echo').value), echoMs: Number($('echod').value) };
+}
+function applyLine() {
+  const l = lineParams();
+  $('att-val').textContent = l.attDb + ' dB';
+  $('fsh-val').textContent = (l.freqHz > 0 ? '+' : '') + l.freqHz + ' Hz';
+  $('jit-val').textContent = l.jitDeg + '\u00b0';
+  $('imp-val').textContent = l.impPerSec > 0 ? l.impPerSec + ' / s' : 'off';
+  $('echo-val').textContent = l.echoPct > 0 ? l.echoPct + '%' : 'off';
+  $('echod-val').textContent = l.echoMs.toFixed(1) + ' ms';
+  for (const w of Object.values(workers)) w.postMessage({ line: l });
+}
+for (const id of ['att', 'fsh', 'jit', 'imp', 'echo', 'echod']) $(id).addEventListener('input', applyLine);
+const hit = (m) => { for (const w of Object.values(workers)) w.postMessage(m); };
+$('click-now').addEventListener('click', () => hit({ click: true }));
+$('drop-100').addEventListener('click', () => hit({ dropMs: 100 }));
+$('drop-1000').addEventListener('click', () => hit({ dropMs: 1000 }));
+$('noise-clean').addEventListener('click', () => { $('noise').value = 0; applyNoise(); for (const [id, v] of [['att', 0], ['fsh', 0], ['jit', 0], ['imp', 0], ['echo', 0], ['echod', 2]]) $(id).value = v; applyLine(); });
 
-// ---- Exchange card, line pill and narrative: what the page knows about the call ----
+// ---- Exchange card: what the page knows about the call ----
 let lineState = 'off';
-const OFFHOOK = 'OFF-HOOK 6V', ONHOOK = 'ON-HOOK 48V';
+const OFFHOOK = 'OFF-HOOK', ONHOOK = 'ON-HOOK';
 const LINE_UI = {
-  off:       { pill: 'POWER OFF', cls: '', tag: 'IDLE', a: ONHOOK, b: ONHOOK, hyb: '2-wire hybrid open', ring: false,
+  off:       { pill: 'POWER OFF', cls: '', tag: 'IDLE', a: ONHOOK, b: ONHOOK, ring: false,
                now: 'Powered off. Press Power on to start both modems.' },
-  standby:   { pill: 'ON-HOOK \u2022 -48V DC', cls: 'on', tag: 'IDLE', a: ONHOOK, b: ONHOOK, hyb: '2-wire hybrid open', ring: false,
+  standby:   { pill: 'ON-HOOK', cls: 'on', tag: 'IDLE', a: ONHOOK, b: ONHOOK, ring: false,
                now: 'On-hook standby. Click Start call, or type ATDT 5551234 in the caller, to start a call.' },
-  dialing:   { pill: 'B OFF-HOOK \u2022 DIALING', cls: 'warn', tag: 'DIALING', a: ONHOOK, b: OFFHOOK, hyb: '2-wire hybrid open', ring: false,
+  dialing:   { pill: 'B OFF-HOOK \u2022 DIALING', cls: 'warn', tag: 'DIALING', a: ONHOOK, b: OFFHOOK, ring: false,
                now: 'B went off-hook and is sending DTMF digits. The exchange decodes them from B\'s audio, then rings A.' },
-  ringing:   { pill: 'RINGING \u2022 A', cls: 'warn', tag: 'RINGING', a: ONHOOK, b: OFFHOOK, hyb: '2-wire hybrid open', ring: true,
-               now: 'The exchange is ringing A. A sees RING and answers with ATA.' },
-  answering: { pill: 'A ANSWERED \u2022 HANDSHAKE', cls: 'warn', tag: 'ANSWER', a: OFFHOOK, b: OFFHOOK, hyb: '2-wire hybrid closed', ring: false,
+  ringing:   { pill: 'RINGING \u2022 A', cls: 'warn', tag: 'RINGING', a: ONHOOK, b: OFFHOOK, ring: false,
+               now: 'The exchange is ringing A and the caller hears ringback. After two rings the host answers with ATA.' },
+  answering: { pill: 'A ANSWERED \u2022 HANDSHAKE', cls: 'warn', tag: 'ANSWER', a: OFFHOOK, b: OFFHOOK, ring: false,
                now: 'A went off-hook. The modems run the V.8 / V.34 handshake: answer tone, capabilities, line probing, training.' },
-  connected: { pill: 'CONNECTED \u2022 2-WIRE', cls: 'on', tag: 'CONNECTED', a: OFFHOOK, b: OFFHOOK, hyb: '2-wire hybrid closed', ring: false,
+  connected: { pill: 'CONNECTED \u2022 2-WIRE', cls: 'on', tag: 'CONNECTED', a: OFFHOOK, b: OFFHOOK, ring: false,
                now: 'Connected. Both modems report CONNECT and data crosses the audio line (error control LAPM, compression V.42bis).' },
 };
 function setLine(st) {
   lineState = st;
   const u = LINE_UI[st];
-  $('linetext').textContent = u.pill; $('linepill').className = 'pill ' + u.cls;
-  $('exch-tag').textContent = u.tag; $('hook-A').textContent = u.a; $('hook-B').textContent = u.b;
-  $('hybrid').textContent = u.hyb; $('ringbar').className = 'ringbar' + (u.ring ? ' on' : '');
-  $('ring-v').textContent = u.ring ? '90V / ON' : '0V / OFF';
-  $('narrative').textContent = u.now; $('call-tag').textContent = u.tag;
-  if (st !== 'dialing') dtmfShow(null);
+  $('hook-A').textContent = u.a; $('hook-B').textContent = u.b;
+  $('ringbar').className = 'ringbar' + (u.ring ? ' on' : '');
+  $('ring-v').textContent = u.ring ? 'ON' : 'OFF';
+  for (const r of ['A', 'B']) $('hook-' + r).parentElement.classList.toggle('off', u[r.toLowerCase()] === OFFHOOK);
+  if (st === 'connected' && workers.A) workers.A.postMessage({ ring: 0 });   // the office stops ringing
+  if (st === 'connected' && !autoSaved) { autoSaved = true; setTimeout(() => saveSnapshot(true), 3000); }   // let the link settle, then keep it
+  refreshSnapUi();
 }
 
 // Load the front-panel drawing into both panels (A and B).
@@ -269,17 +506,24 @@ fetch('courier-front-panel.svg').then((r) => r.text()).then((svg) => {
     $('panel-' + role).innerHTML = svg;
     panels[role] = new PanelDriver($('panel-' + role));
   }
+  layoutCables();
 });
 // Live audio: caller (B) on the left, answerer (A) on the right.
 let actx = null, pan = {}, nextT = { A: 0, B: 0 }, rate = 7200;
 // Speaker gate: latch 0x12 bit 0x10, active low (driven low = speaker on, per panel.py).
 // Until the firmware writes the latch the speaker counts as off (muted).
 const speakerOn = { A: false, B: false };
+let listening = false;   // the Listen switch: off, each modem's own speaker setting (ATM/ATL) decides; on, the line audio is always heard
 const speakerGain = {};
 function setSpeaker(role, v) {
   speakerOn[role] = v >= 0 && !(v & 0x10);
-  if (speakerGain[role]) speakerGain[role].gain.value = speakerOn[role] ? 1 : 0;
+  applySpeaker(role);
 }
+
+function applySpeaker(role) { if (speakerGain[role]) speakerGain[role].gain.value = (listening || speakerOn[role]) ? 1 : 0; }
+
+listening = $('listen').checked;   // the browser can restore the checkbox as on after a reload; the audio must follow it
+$('listen').addEventListener('change', () => { listening = $('listen').checked; if (actx && actx.state === 'suspended') actx.resume(); for (const r of ['A', 'B']) applySpeaker(r); });
 
 function audioInit() {
   actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -287,7 +531,7 @@ function audioInit() {
     pan[role] = actx.createStereoPanner();
     pan[role].pan.value = p;
     speakerGain[role] = actx.createGain();
-    speakerGain[role].gain.value = speakerOn[role] ? 1 : 0;
+    speakerGain[role].gain.value = (listening || speakerOn[role]) ? 1 : 0;
     speakerGain[role].connect(pan[role]);
     pan[role].connect(actx.destination);
   }
@@ -306,8 +550,8 @@ const DTMF_LOW = [697, 770, 852, 941], DTMF_HIGH = [1209, 1336, 1477, 1633];
 const DTMF_KEYS = [['1', '2', '3', 'A'], ['4', '5', '6', 'B'], ['7', '8', '9', 'C'], ['*', '0', '#', 'D']];
 const DIAL_DIGITS = 7;
 let dialing = false, dialDigits = 0, dialLast = null, dialBuf = [], dialRate = 0;
-let dialledHeard = '', lastTones = null;
-function startDialing() { dialing = true; dialDigits = 0; dialLast = null; dialBuf = []; dialRate = 0; dialledHeard = ''; $('dialled-A').textContent = ''; }
+let dialledHeard = '';
+function startDialing() { dialing = true; dialDigits = 0; dialLast = null; dialBuf = []; dialRate = 0; dialledHeard = ''; lcd(''); }
 function goertzel(block, f, r) {
   const N = block.length, k = Math.round(N * f / r), coeff = 2 * Math.cos(2 * Math.PI * k / N);
   let s1 = 0, s2 = 0;
@@ -320,26 +564,142 @@ function decodeDigit(block, r) {
   if (lo[il] < 1e8 || hi[ih] < 1e8) return null;                         // loud enough to be a tone
   if (lo.some((p, j) => j !== il && p > lo[il] * 0.2)) return null;      // one tone per group
   if (hi.some((p, j) => j !== ih && p > hi[ih] * 0.2)) return null;
-  lastTones = [DTMF_LOW[il], DTMF_HIGH[ih]];
   return DTMF_KEYS[il][ih];
 }
-// The decoder keypad: lights the key the exchange is hearing and shows its two frequencies.
-for (const key of DTMF_KEYS.flat()) { const k = document.createElement('span'); k.textContent = key; k.dataset.key = key; $('keys').appendChild(k); }
-function dtmfShow(key) {
-  for (const k of $('keys').children) k.classList.toggle('hot', k.dataset.key === key);
-  $('dtmf-hz').textContent = key && lastTones ? lastTones[0] + ' / ' + lastTones[1] + ' Hz' : '-- / -- Hz';
+// The exchange's one-line DTMF screen.
+function lcd(text) { $('dtmf-lcd').textContent = text || '\u00a0'; }
+// ---- Cables: each modem is wired to its line card in the exchange. The wire shows what the line is doing. ----
+let ringOnNow = false;
+function layoutCables() {
+  const st = $('stage').getBoundingClientRect();
+  for (const role of ['A', 'B']) {
+    const p = $('panel-' + role).getBoundingClientRect(), j = $('jack-' + role).getBoundingClientRect();
+    if (!p.width || !j.width) continue;
+    const left = role === 'A';
+    const jx = j.left + j.width / 2 - st.left, jy = j.top + j.height / 2 - st.top;
+    const mx = (left ? p.right : p.left) - st.left, my = p.top + p.height / 2 - st.top;   // the plug's outer end
+    const dx = Math.abs(jx - mx) * 0.45, sg = left ? -1 : 1, sag = 7;
+    const d = 'M' + jx + ' ' + jy + ' C' + (jx + sg * dx) + ' ' + (jy + sag) + ' ' + (mx - sg * dx) + ' ' + (my + sag) + ' ' + mx + ' ' + my;
+    const g = $('cable-' + role);
+    for (const path of g.querySelectorAll('path')) path.setAttribute('d', d);
+    const plug = g.querySelector('.plug'); plug.setAttribute('x', mx - 3); plug.setAttribute('y', my - 7);
+  }
 }
+function updateCables() {
+  const connected = lineState === 'connected' || lineState === 'answering';
+  for (const role of ['A', 'B']) {
+    const c = [];
+    if (hook[role]) c.push('off');
+    if (connected) c.push('live');
+    else if (lineState === 'ringing' && ringOnNow && role === 'A') c.push('ring');   // only the called line carries ring; B just has its line off-hook
+    if (toneRole === role) c.push('tone');                                                   // dial tone to the caller
+    $('cable-' + role).setAttribute('class', 'cable ' + c.join(' '));
+  }
+  $('exch').classList.toggle('closed', connected);
+}
+window.addEventListener('resize', layoutCables);
+if (window.ResizeObserver) new ResizeObserver(layoutCables).observe($('stage'));
+setInterval(updateCables, 150);
+setTimeout(layoutCables, 300);
+
+// ---- Line level meters and the call timer in the exchange ----
+const vuLevel = { A: 0, B: 0 };   // 0..1: the audio each modem puts on its line, with a quick decay
+function vuFeed(role, tx) {
+  let sum = 0; for (let i = 0; i < tx.length; i++) sum += tx[i] * tx[i];
+  const db = 20 * Math.log10(Math.sqrt(sum / (tx.length || 1)) / 32768 + 1e-6);
+  vuLevel[role] = Math.max(vuLevel[role], Math.max(0, Math.min(1, (db + 60) / 60)));
+}
+function drawVu() {
+  for (const role of ['A', 'B']) {
+    const c = $('vu-' + role), g = c.getContext('2d'), n = 24, w = c.width / n;
+    vuLevel[role] *= 0.9;
+    g.clearRect(0, 0, c.width, c.height);
+    for (let i = 0; i < n; i++) {
+      const lit = i < Math.round(vuLevel[role] * n);
+      g.fillStyle = lit ? (i < 16 ? '#2f9e44' : i < 21 ? '#e0a526' : '#d9472b') : '#c9d5c6';
+      g.fillRect(i * w + 1, 0, w - 2, c.height);
+    }
+  }
+  if (hook.A && hook.B) {
+    if (!callStart) callStart = performance.now();
+    const t = Math.floor((performance.now() - callStart) / 1000);
+    $('call-time').textContent = String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+  } else { callStart = 0; $('call-time').textContent = '--:--'; }
+}
+let callStart = 0;
+setInterval(drawVu, 60);
+
+// ---- Dial tone from the exchange ----
+// The first modem to go off-hook (its OH latch, port 0x10 bit 0) gets dial tone (350 + 440 Hz), played through its
+// speaker. The tone stops 50 ms after the first DTMF digit is decoded. It comes back only after both modems have gone
+// on-hook. It is not fed into the modem's receive audio: the modem dials blind (X3), and feeding it made the handshake
+// that follows erratic (lower connect speeds, an occasional NO CARRIER).
+const hook = { A: false, B: false };
+let dialArmed = true, toneRole = null, toneStopTimer = null;
+const toneSets = { dial: [350, 440], ringback: [440, 480] };   // US dial tone and ringback tone
+const toneNodes = {};
+function toneAudio(kind, role, on) {
+  if (!actx) return;
+  if (on && !toneNodes[kind] && speakerGain[role]) {
+    const g = actx.createGain(); g.gain.value = 0;
+    const oscs = toneSets[kind].map((f) => { const o = actx.createOscillator(); o.frequency.value = f; o.connect(g); o.start(); return o; });
+    g.connect(speakerGain[role]);
+    g.gain.setTargetAtTime(0.1, actx.currentTime, 0.01);
+    toneNodes[kind] = { g, oscs };
+  } else if (!on && toneNodes[kind]) {
+    const t = toneNodes[kind]; delete toneNodes[kind];
+    t.g.gain.setTargetAtTime(0, actx.currentTime, 0.01);
+    setTimeout(() => { for (const o of t.oscs) { try { o.stop(); } catch (e) { /* already stopped */ } } t.g.disconnect(); }, 150);
+  }
+}
+function stopDialTone() {
+  clearTimeout(toneStopTimer); toneStopTimer = null;
+  if (toneRole) { toneAudio('dial', toneRole, false); toneRole = null; }
+}
+function exchangeHook(role, off) {
+  if (hook[role] === off) return;
+  hook[role] = off;
+  if (off && dialArmed && !toneRole) {
+    dialArmed = false;                                  // used up until both modems are on-hook again
+    toneRole = role; toneAudio('dial', role, true);
+  }
+  if (!off && role === toneRole) stopDialTone();         // hung up while it was listening to the tone
+  if (off && role === 'A') answered();
+  if (!hook.A && !hook.B) { stopDialTone(); dialArmed = true; }
+}
+// ---- Ringing: the exchange rings A in the US cadence (2 s on, 4 s off) and the caller hears ringback in step. A prints
+// RING for each ring; after the second one the host answers with ATA, once that ring's burst is over. If the modem
+// does not take it, the next ring tries again. ----
+let ringsHeard = 0, ringFrom = 0, answerTimer = null;
+function onRingState(on) {
+  ringOnNow = on;
+  $('ringbar').className = 'ringbar' + (on ? ' on' : '');
+  $('ring-v').textContent = on ? 'ON' : 'OFF';
+  toneAudio('ringback', 'B', on && lineState === 'ringing');
+  if (!on && lineState === 'ringing' && ringsHeard >= 2 && !hook.A) {
+    clearTimeout(answerTimer);
+    answerTimer = setTimeout(() => { if (lineState === 'ringing' && !hook.A && workers.A) workers.A.postMessage({ cmd: 'send', text: 'ATA\r' }); }, 200);
+  }
+}
+function answered() {   // A is off-hook: the exchange stops ringing and the ringback ends
+  clearTimeout(answerTimer);
+  if (workers.A) workers.A.postMessage({ ring: 0 });
+  toneAudio('ringback', 'B', false);
+  $('ringbar').className = 'ringbar'; $('ring-v').textContent = 'OFF';
+  if (lineState === 'ringing') setLine('answering');
+}
+function dialToneReset(armed) { stopDialTone(); hook.A = hook.B = false; dialArmed = armed; }
 function dtmfFeed(tx, r) {
   if (r !== dialRate) { dialBuf = []; dialRate = r; }                    // a rate change starts a new block
   const N = Math.round(r * 0.025);                                       // 25 ms blocks
   for (let i = 0; i < tx.length; i++) dialBuf.push(tx[i]);
   while (dialBuf.length >= N) {
     const key = decodeDigit(dialBuf.splice(0, N), r);
-    dtmfShow(key);
     if (key && key !== dialLast) {                                       // a new digit's onset
-      dialDigits++; dialledHeard += key; $('dialled-A').textContent = dialledHeard;
+      if (toneRole && !toneStopTimer) toneStopTimer = setTimeout(stopDialTone, 50);   // dial tone ends 50 ms after the first digit
+      dialDigits++; dialledHeard += key; lcd(dialledHeard);
       if (dialDigits >= DIAL_DIGITS) {
-        dialing = false; setLine('ringing');
+        dialing = false; ringsHeard = 0; ringFrom = dte.A.length; setLine('ringing');
         setTimeout(() => workers.A && workers.A.postMessage({ ring: 1 }), 1000);   // one second of routing, then ring
       }
     }
@@ -416,13 +776,25 @@ function keyText(e) {
 for (const role of ['A', 'B']) {
   const pre = logEls[role];
   pre.tabIndex = 0;
+  pre.closest('.term').addEventListener('mousedown', (e) => { if (e.target !== pre && !e.target.closest('.flip')) { e.preventDefault(); pre.focus(); } });
   pre.addEventListener('keydown', (e) => {
     const k = keyText(e);
     if (k === null) return;
     e.preventDefault();
     if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
     workers[role].postMessage({ cmd: 'send', text: k });
-    termWrite(role, k);   // Enter (\r) starts the next line
+    if ($('echo-' + role).checked) termWrite(role, k);   // off by default: in command mode the modem echoes (E1) itself
+  });
+}
+
+for (const role of ['A', 'B']) {
+  logEls[role].addEventListener('paste', (e) => {
+    const t = (e.clipboardData.getData('text') || '').replace(/\r?\n/g, '\r');
+    e.preventDefault();
+    if (!t) return;
+    if (!workers[role]) { statusEl.textContent = 'Start a call first.'; return; }
+    workers[role].postMessage({ cmd: 'send', text: t });
+    if ($('echo-' + role).checked) termWrite(role, t);
   });
 }
 
@@ -457,20 +829,45 @@ function flashLamp(role, name) {
 
 // Constellation: one dot per symbol, fading, scaled to the largest value seen. These are the points the modem
 // sends (the mapper's output): a clean grid. They are not the received, equalized points.
-const scopeMax = { A: 1, B: 1 }, scopeZoom = { A: 'auto', B: 'auto' }, scopeAuto = { A: 1, B: 1 }, scopeXs = { A: new Set(), B: new Set() }, scopePts = { A: new Set(), B: new Set() };
+const scopeMax = { A: 1, B: 1 }, scopeZoom = { A: 'auto', B: 'auto' }, scopeAuto = { A: 1, B: 1 }, scopeHist = { A: [], B: [] }, scopeXs = { A: new Set(), B: new Set() }, scopePts = { A: new Set(), B: new Set() };
+const speedOf = { A: '', B: '' };   // negotiated speed per side, e.g. '33600 BIT/S'; kept off the button label
+const isFsk = (role) => /^300 /.test(speedOf[role]);
 let instSide = 'A';   // which modem the instruments show; both keep collecting
+// Per-instrument switches: an instrument that is off is not drawn, and with I/Q off the modems stop sampling the scope cells.
+const instOn = { iq: true, fft: true, wave: true };
+const scopeWanted = () => instSide !== 'off' && instOn.iq;
+function offScreen(id, label) {
+  const c = $(id), g = c.getContext('2d'); g.shadowBlur = 0; g.fillStyle = '#e5ece3'; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = '#7b857e'; g.font = '20px ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, c.width / 2, c.height / 2); g.textAlign = 'start';
+}
 function instClear() {
-  for (const id of ['scope-iq', 'scope-fft', 'scope-wave']) { const c = $(id), g = c.getContext('2d'); g.shadowBlur = 0; g.fillStyle = '#090c0b'; g.fillRect(0, 0, c.width, c.height); }
+  if (instSide === 'off') {
+    for (const id of ['scope-iq', 'scope-fft', 'scope-wave']) { const c = $(id), g = c.getContext('2d'); g.shadowBlur = 0; g.fillStyle = '#e5ece3'; g.fillRect(0, 0, c.width, c.height); }
+    const c = $('scope-iq'), g = c.getContext('2d'); g.fillStyle = '#7b857e'; g.font = '20px ui-monospace, monospace'; g.textAlign = 'center'; g.fillText('instruments off', c.width / 2, c.height / 2); g.textAlign = 'start';
+    $('ro-iq').textContent = ''; return;
+  }
+  blankScreens();
+  { const d = $('scope-dec'); d.getContext('2d').clearRect(0, 0, d.width, d.height); }
   $('ro-iq').textContent = scopePts[instSide].size ? scopePts[instSide].size + ' pts' : '';
-  $('iq-zoom').value = String(scopeZoom[instSide]);
 }
 for (const b of document.querySelectorAll('button[data-side]')) b.addEventListener('click', () => {
   instSide = b.dataset.side;
+  for (const w of Object.values(workers)) w.postMessage({ scope: scopeWanted() });   // off: the modems stop sampling the scope cells too
   for (const o of document.querySelectorAll('button[data-side]')) o.classList.toggle('on', o === b);
   instClear();
 });
-$('iq-zoom').addEventListener('change', () => { const v = $('iq-zoom').value; scopeZoom[instSide] = v === 'auto' ? v : Number(v); });
-$('iq-reset').addEventListener('click', () => { scopeMax[instSide] = 1; scopeAuto[instSide] = 1; scopeXs[instSide].clear(); scopePts[instSide].clear(); $('ro-iq').textContent = ''; });
+setTimeout(instClear, 0);   // the screens start with their axes and grids
+for (const k of ['iq', 'fft', 'wave']) $('inst-' + k).addEventListener('change', () => {
+  instOn[k] = $('inst-' + k).checked;
+  if (k === 'iq') for (const w of Object.values(workers)) w.postMessage({ scope: scopeWanted() });
+  instClear();
+});
+for (const k of ['rx', 'dec']) $('ly-' + k).addEventListener('change', () => {
+  iqLayer[k] = $('ly-' + k).checked;
+  $('iq-cap').textContent = iqLayer.rx && iqLayer.dec ? 'received + decoded' : iqLayer.dec ? 'decoded' : iqLayer.rx ? 'received' : 'nothing selected';
+  for (const r of ['A', 'B']) { scopeAuto[r] = 1; scopeHist[r] = []; }
+  instClear();
+});
 const IQ_MAX = 300, dotSprites = new Map();
 function dotSprite(rad) {
   const key = Math.round(rad * 4);
@@ -479,61 +876,127 @@ function dotSprite(rad) {
     const r = key / 4, size = Math.ceil(2 * (r + 8));
     c = document.createElement('canvas'); c.width = c.height = size;
     const g = c.getContext('2d');
-    g.fillStyle = '#7dff8f'; g.shadowColor = 'rgba(100,255,130,0.9)'; g.shadowBlur = 5;
+    g.fillStyle = '#2f6b3f';
     g.beginPath(); g.arc(size / 2, size / 2, r, 0, 2 * Math.PI); g.fill();
     dotSprites.set(key, c);
   }
   return c;
 }
-function drawScope(role, pts) {
-  const c = $('scope-iq'), g = c.getContext('2d'), W = c.width, H = c.height, cx = W / 2, cy = H / 2;
-  let mx = scopeMax[role];
-  const xs = scopeXs[role];
-  for (let i = 0; i < pts.length; i++) {
-    mx = Math.max(mx, Math.abs(pts[i]));
-    if (i % 2 === 0 && xs.size < 200) xs.add(pts[i]);
-    if (i % 2 === 0 && scopePts[role].size < 4000) scopePts[role].add((pts[i] & 0xFFFF) * 65536 + (pts[i + 1] & 0xFFFF));
-  }
-  scopeMax[role] = mx;
-  if (role !== instSide) return;   // the other modem's points are kept, just not drawn
-  $('ro-iq').textContent = scopePts[role].size + ' pts';
-  // Auto zoom: fit the recent extent (the largest value of the last second or two, decaying), with a little headroom.
-  let fm = 0; for (let i = 0; i < pts.length; i++) fm = Math.max(fm, Math.abs(pts[i]));
-  scopeAuto[role] = Math.max(fm, scopeAuto[role] * 0.97, 1);
-  const extent = scopeZoom[role] === 'auto' ? scopeAuto[role] * 1.08 : mx / scopeZoom[role];
-  const R = W / 2 - 34, sc = R / extent;   // leave a margin for the axis labels
-  // The points sit on a lattice; size the dots from its spacing (the smallest gap between x values seen).
-  const v = [...xs].sort((a, b) => a - b);
-  let gap = Infinity;
-  for (let i = 1; i < v.length; i++) if (v[i] - v[i - 1] > 0) gap = Math.min(gap, v[i] - v[i - 1]);
-  const rad = Number.isFinite(gap) ? Math.max(2, Math.min(4, gap * sc * 0.13)) : 2;
-  g.shadowBlur = 0;
-  g.fillStyle = 'rgba(9,12,11,0.16)'; g.fillRect(0, 0, W, H);                 // persistence
-  // Graticule: crosshair with tick marks.
-  g.strokeStyle = 'rgba(70,140,85,0.4)';
+const scopeLast = { A: 0, B: 0 };   // when this modem's scope last got points
+// The I/Q screen keeps time even when nothing arrives: old dots fade, and the idle time counts up.
+setInterval(() => {
+  if (instSide === 'off' || !instOn.iq) return;
+  const role = instSide, idle = performance.now() - scopeLast[role], c = $('scope-iq'), g = c.getContext('2d');
+  const fsk = isFsk(role);
+  if (idle < 400 && !fsk) return;
+  if (!scopeLast[role] && !fsk && !workers[role]) return;
+  g.fillStyle = 'rgba(229,236,227,' + (fsk ? 1 : 0.12) + ')'; g.fillRect(0, 0, c.width, c.height);
+  iqAxes(g, c.width, c.height, (scopeAuto[role] || 1) * 1.08, !fsk && scopeLast[role] > 0);
+  if (fsk) { g.fillStyle = '#7b857e'; g.font = '20px ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('FSK: no constellation', c.width / 2, c.height / 2 + 60); g.textAlign = 'start'; }
+  $('ro-iq').textContent = fsk ? $('call-time').textContent : scopeLast[role] ? 'no update ' + (idle / 1000).toFixed(1) + ' s' : (fsk ? $('call-time').textContent : 'waiting');
+}, 100);
+// The I/Q screen's crosshair, ticks and axis labels (I right, Q top, full-scale value at each end). Drawn whether or not
+// any points arrive; without data (extent unknown) the numbers are left out.
+function iqAxes(g, W, H, extent, withNumbers) {
+  const cx = W / 2, cy = H / 2, R = W / 2 - 58;
+  g.strokeStyle = 'rgba(59,92,68,0.35)'; g.lineWidth = 1;
   g.beginPath(); g.moveTo(cx, 6); g.lineTo(cx, H - 6); g.moveTo(6, cy); g.lineTo(W - 6, cy); g.stroke();
   g.beginPath();
   for (let k = -4; k <= 4; k++) { const o = k * R / 4; g.moveTo(cx + o, cy - 4); g.lineTo(cx + o, cy + 4); g.moveTo(cx - 4, cy + o); g.lineTo(cx + 4, cy + o); }
   g.stroke();
-  // The points: small round dots with a soft glow. The glow is rendered once into a sprite (shadowBlur per dot is
-  // slow); repeats of the same point are skipped, and at most IQ_MAX dots go out per frame.
-  const sp = dotSprite(rad), half = sp.width / 2;
-  let drawn = 0, lx = NaN, ly = NaN;
-  for (let i = pts.length - 2; i >= 0 && drawn < IQ_MAX; i -= 2) {
-    if (pts[i] === lx && pts[i + 1] === ly) continue;
-    lx = pts[i]; ly = pts[i + 1];
-    g.drawImage(sp, cx + lx * sc - half, cy - ly * sc - half);
-    drawn++;
-  }
-  // Axis labels in the margin: I at the right end of the horizontal axis, Q at the top of the vertical one,
-  // with the full-scale value at each end.
-  const full = Math.round(extent);
-  g.fillStyle = 'rgba(125,255,143,0.9)'; g.font = '600 15px ui-monospace, Menlo, monospace';
+  g.fillStyle = g.strokeStyle = 'rgba(59,92,68,0.7)';   // arrowheads at the positive ends of the axes
+  g.beginPath(); g.moveTo(W - 6, cy); g.lineTo(W - 18, cy - 6); g.lineTo(W - 18, cy + 6); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(cx, 6); g.lineTo(cx - 6, 18); g.lineTo(cx + 6, 18); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(30,75,44,0.95)'; g.font = '600 24px ui-monospace, Menlo, monospace';
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText('I', W - 14, cy); g.fillText('Q', cx, 14);
-  g.fillStyle = 'rgba(125,255,143,0.55)'; g.font = '11px ui-monospace, Menlo, monospace';
-  g.fillText('+' + full, W - 20, cy + 18); g.fillText('-' + full, 20, cy + 18);
-  g.textAlign = 'left'; g.fillText('+' + full, cx + 8, 30); g.fillText('-' + full, cx + 8, H - 14);
+  g.fillText('I', W - 16, cy + 22); g.fillText('Q', cx + 22, 16);
+  if (withNumbers) {
+    const full = Math.round(extent);
+    g.font = '20px ui-monospace, Menlo, monospace';
+    const put = (txt, x, y, al) => {   // the screen fades rather than clears, so give each number its own background
+      g.textAlign = al; const w = g.measureText(txt).width, x0 = al === 'right' ? x - w : x;
+      g.fillStyle = '#e5ece3'; g.fillRect(x0 - 3, y - 12, w + 6, 24);
+      g.fillStyle = 'rgba(30,75,44,0.9)'; g.fillText(txt, x, y);
+    };
+    put('+' + full, W - 38, cy - 20, 'right'); put('-' + full, 14, cy - 20, 'left');
+    put('+' + full, cx + 12, 46, 'left'); put('-' + full, cx + 12, H - 22, 'left');
+  }
+  g.textAlign = 'start';
+}
+function blankScreens() {   // all three screens with their axes and grids, no signal
+  const c = $('scope-iq'), g = c.getContext('2d');
+  if (instOn.iq) { g.shadowBlur = 0; g.fillStyle = '#e5ece3'; g.fillRect(0, 0, c.width, c.height); iqAxes(g, c.width, c.height, 1, false); } else offScreen('scope-iq', 'off');
+  if (instOn.fft) drawFft(new Float32Array(FFT_N / 2), 7200); else offScreen('scope-fft', 'off');
+  if (instOn.wave) { drawWave(new Float32Array(FFT_N), 7200); $('wave-pk').textContent = '-'; } else { offScreen('scope-wave', 'off'); $('wave-pk').textContent = ''; $('wave-span').textContent = ''; }
+}
+const iqLayer = { rx: true, dec: false };   // which points the I/Q screen shows: the received (equalised) points, and the trellis-decoded decisions on top
+const scopeRms = { A: { r: 1, d: 1, init: false }, B: { r: 1, d: 1, init: false } };
+function drawScope(role, all) {
+  if (!instOn.iq) return;
+  // all: four values per point: received x, y, then the decoded decision x, y (a lattice at a different scale).
+  const n = all.length >> 2, rx = new Int32Array(2 * n), dc = new Int32Array(2 * n);
+  for (let k = 0; k < n; k++) { rx[2 * k] = all[4 * k]; rx[2 * k + 1] = all[4 * k + 1]; dc[2 * k] = all[4 * k + 2]; dc[2 * k + 1] = all[4 * k + 3]; }
+  if (n) scopeLast[role] = performance.now();
+  const c = $('scope-iq'), g = c.getContext('2d'), W = c.width, H = c.height, cx = W / 2, cy = H / 2;
+  const rms = scopeRms[role];
+  if (n >= 8) {   // mean square of this frame; the first frame sets the scale at once, later ones move it quickly
+    let sr = 0, sd = 0; for (let i = 0; i < rx.length; i++) { sr += rx[i] * rx[i]; sd += dc[i] * dc[i]; }
+    sr /= rx.length; sd /= dc.length;
+    const a = rms.init ? 0.4 : 1;
+    rms.r = rms.r * (1 - a) + sr * a; rms.d = rms.d * (1 - a) + sd * a; rms.init = true;
+  }
+  let mx = scopeMax[role];
+  const xs = scopeXs[role];
+  for (let i = 0; i < rx.length; i++) {
+    mx = Math.max(mx, Math.abs(rx[i]));
+    if (i % 2 === 0 && xs.size < 200) xs.add(rx[i]);
+    if (i % 2 === 0 && scopePts[role].size < 4000) scopePts[role].add((rx[i] & 0xFFFF) * 65536 + (rx[i + 1] & 0xFFFF));
+  }
+  scopeMax[role] = mx;
+  if (role !== instSide) return;   // the other modem's points are kept, just not drawn
+  if (isFsk(role)) return;   // V.21 / Bell 103: no constellation; the cells hold stale mapper values, so nothing is drawn
+  $('ro-iq').textContent = scopePts[role].size + ' pts';
+  // The decoded decisions sit on a lattice of their own scale; they are drawn at the received scale (ratio of the rms of the two).
+  const k = Math.sqrt(rms.r / Math.max(rms.d, 1e-9));
+  // Auto zoom: fit the largest value of the last few frames (about a third of a second), with a little headroom.
+  // Growing is immediate; shrinking closes half the gap each frame. A big change clears the old trails.
+  let fm = 1;
+  if (iqLayer.rx || !iqLayer.dec) for (let i = 0; i < rx.length; i++) fm = Math.max(fm, Math.abs(rx[i]));
+  else for (let i = 0; i < dc.length; i++) fm = Math.max(fm, Math.abs(dc[i]) * k);
+  const hist = scopeHist[role]; hist.push(fm); if (hist.length > 6) hist.shift();
+  const target = Math.max(...hist), prev = scopeAuto[role];
+  scopeAuto[role] = target >= prev ? target : prev + (target - prev) * 0.5;
+  if (role === instSide && Math.abs(scopeAuto[role] - prev) > 0.15 * prev && scopeZoom[role] === 'auto') { g.fillStyle = '#e5ece3'; g.fillRect(0, 0, W, H); $('scope-dec').getContext('2d').clearRect(0, 0, W, H); }
+  const extent = scopeZoom[role] === 'auto' ? scopeAuto[role] * 1.08 : mx / scopeZoom[role];
+  const R = W / 2 - 58, sc = R / extent;   // leave a margin for the axis labels
+  g.shadowBlur = 0;
+  g.fillStyle = 'rgba(229,236,227,0.18)'; g.fillRect(0, 0, W, H);                 // persistence
+  iqAxes(g, W, H, extent, true);
+  // The received points: small round dots, one sprite drawn per point; repeats of the same point are skipped, and at most
+  // IQ_MAX dots go out per frame.
+  let drawn = 0, lx = NaN, ly = NaN;
+  if (iqLayer.rx) {
+    const sp = dotSprite(3.5), half = sp.width / 2;
+    for (let i = rx.length - 2; i >= 0 && drawn < IQ_MAX; i -= 2) {
+      if (rx[i] === lx && rx[i + 1] === ly) continue;
+      lx = rx[i]; ly = rx[i + 1];
+      g.drawImage(sp, cx + lx * sc - half, cy - ly * sc - half);
+      drawn++;
+    }
+  }
+  // The decoded decisions go on a transparent canvas above the main one, so they stay on top of the green dots; it fades the same way.
+  const dg = $('scope-dec').getContext('2d');
+  dg.globalCompositeOperation = 'destination-out'; dg.fillStyle = 'rgba(0,0,0,0.18)'; dg.fillRect(0, 0, W, H); dg.globalCompositeOperation = 'source-over';
+  if (iqLayer.dec) {   // yellow squares with a thin dark edge
+    dg.fillStyle = '#ffd21f'; dg.strokeStyle = '#7a5600'; dg.lineWidth = 1; lx = NaN; ly = NaN; drawn = 0;
+    for (let i = dc.length - 2; i >= 0 && drawn < 400; i -= 2) {
+      if (dc[i] === lx && dc[i + 1] === ly) continue;
+      lx = dc[i]; ly = dc[i + 1];
+      const x = cx + lx * k * sc - 4, y = cy - ly * k * sc - 4;
+      dg.fillRect(x, y, 8, 8); dg.strokeRect(x + 0.5, y + 0.5, 7, 7);
+      drawn++;
+    }
+  }
 }
 // Spectrum of the audio a modem sends: the last 1024 samples, Hann window, radix-2 FFT, bins averaged a little.
 const FFT_N = 1024, fftBuf = { A: [], B: [] }, fftAvg = { A: new Float32Array(FFT_N / 2), B: new Float32Array(FFT_N / 2) }, fftRate = { A: 7200, B: 7200 }, fftWhen = { A: 0, B: 0 };
@@ -562,52 +1025,76 @@ function fftFeed(role, tx, r) {
   for (let i = 0; i < tx.length; i++) buf.push(tx[i]);
   if (buf.length > FFT_N) buf.splice(0, buf.length - FFT_N);
   const now = performance.now();
-  if (role !== instSide || buf.length < FFT_N || now - fftWhen[role] < 80) return;
+  if (role !== instSide || buf.length < FFT_N || now - fftWhen[role] < 80 || (!instOn.fft && !instOn.wave)) return;
   fftWhen[role] = now;
-  const re = new Float32Array(FFT_N), im = new Float32Array(FFT_N), avg = fftAvg[role];
-  for (let i = 0; i < FFT_N; i++) re[i] = buf[i] / 32768 * fftWin[i];
-  fftRun(re, im);
-  for (let k = 0; k < FFT_N / 2; k++) avg[k] = 0.6 * avg[k] + 0.4 * Math.hypot(re[k], im[k]) / (FFT_N / 4);   // 1.0 = full-scale sine
-  drawFft(avg, r);
-  drawWave(buf, r);
+  if (instOn.fft) {
+    const re = new Float32Array(FFT_N), im = new Float32Array(FFT_N), avg = fftAvg[role];
+    for (let i = 0; i < FFT_N; i++) re[i] = buf[i] / 32768 * fftWin[i];
+    fftRun(re, im);
+    for (let k = 0; k < FFT_N / 2; k++) avg[k] = 0.6 * avg[k] + 0.4 * Math.hypot(re[k], im[k]) / (FFT_N / 4);   // 1.0 = full-scale sine
+    drawFft(avg, r);
+  }
+  if (instOn.wave) drawWave(buf, r);
 }
 function drawFft(avg, r) {
-  const c = $('scope-fft'), g = c.getContext('2d'), W = c.width, H = c.height, L = 40, R = W - 12, T = 14, B = H - 30, DB0 = -100;
-  g.shadowBlur = 0; g.fillStyle = '#090c0b'; g.fillRect(0, 0, W, H);
-  g.font = '11px ui-monospace, Menlo, monospace'; g.fillStyle = 'rgba(125,255,143,0.55)'; g.strokeStyle = 'rgba(70,140,85,0.25)'; g.lineWidth = 1;
+  const c = $('scope-fft'), g = c.getContext('2d'), W = c.width, H = c.height, L = 72, R = W - 16, T = 18, B = H - 54, DB0 = -100;
+  g.shadowBlur = 0; g.fillStyle = '#e5ece3'; g.fillRect(0, 0, W, H);
+  g.font = '20px ui-monospace, Menlo, monospace'; g.fillStyle = 'rgba(30,75,44,0.9)'; g.strokeStyle = 'rgba(59,92,68,0.2)'; g.lineWidth = 1;
   g.textAlign = 'right'; g.textBaseline = 'middle';
-  for (let db = 0; db >= DB0; db -= 20) { const y = T + (B - T) * (-db) / -DB0; g.beginPath(); g.moveTo(L, y); g.lineTo(R, y); g.stroke(); g.fillText(String(db), L - 6, y); }
+  for (let db = 0; db >= DB0; db -= 20) { const y = T + (B - T) * (-db) / -DB0; g.beginPath(); g.moveTo(L, y); g.lineTo(R, y); g.stroke(); g.fillText(String(db), L - 8, y); }
   const nyq = r / 2; g.textAlign = 'center'; g.textBaseline = 'top';
-  for (let f = 0; f <= nyq; f += 1000) { const x = L + (R - L) * f / nyq; g.beginPath(); g.moveTo(x, T); g.lineTo(x, B); g.stroke(); g.fillText(f / 1000 + 'k', x, B + 6); }
-  g.fillStyle = 'rgba(125,255,143,0.9)'; g.fillText('Hz', R - 8, B + 18);
+  for (let f = 0; f <= nyq; f += 1000) { const x = L + (R - L) * f / nyq; g.beginPath(); g.moveTo(x, T); g.lineTo(x, B); g.stroke(); g.fillText(f / 1000 + 'k', x, B + 16); }
   g.beginPath(); g.moveTo(L, B);
   for (let k = 0; k < avg.length; k++) { const db = Math.max(DB0, 20 * Math.log10(avg[k] + 1e-9)); g.lineTo(L + (R - L) * k / avg.length, T + (B - T) * (-db) / -DB0); }
-  g.lineTo(R, B); g.closePath(); g.fillStyle = 'rgba(100,255,130,0.18)'; g.fill();
-  g.strokeStyle = '#7dff8f'; g.lineWidth = 1.2; g.shadowColor = 'rgba(100,255,130,0.8)'; g.shadowBlur = 4; g.stroke(); g.shadowBlur = 0;
+  g.lineTo(R, B); g.closePath(); g.fillStyle = 'rgba(47,107,63,0.14)'; g.fill();
+  g.strokeStyle = '#2f6b3f'; g.lineWidth = 1.2; g.stroke();
   $('fft-nyq').textContent = (nyq / 1000).toFixed(1);
 }
+$('wave-n').addEventListener('input', () => { if (lastWave && instOn.wave) drawWave(lastWave.buf, lastWave.r); });
+let lastWave = null;
 function drawWave(buf, r) {
-  const c = $('scope-wave'), g = c.getContext('2d'), W = c.width, H = c.height, N = 512, cy = H / 2;
+  lastWave = { buf, r };
+  const c = $('scope-wave'), g = c.getContext('2d'), W = c.width, H = c.height, N = Number($('wave-n').value), cy = H / 2;
   let s0 = 0; while (s0 < FFT_N - N - 1 && !(buf[s0] <= 0 && buf[s0 + 1] > 0)) s0++;   // trigger: rising zero crossing
   if (s0 >= FFT_N - N - 1) s0 = 0;
   let pk = 1; for (let i = 0; i < FFT_N; i++) pk = Math.max(pk, Math.abs(buf[i]));
   const sc = (H / 2 - 12) / Math.max(pk, 2048);
-  g.shadowBlur = 0; g.fillStyle = '#090c0b'; g.fillRect(0, 0, W, H);
-  g.strokeStyle = 'rgba(70,140,85,0.25)'; g.lineWidth = 1;
+  g.shadowBlur = 0; g.fillStyle = '#e5ece3'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(59,92,68,0.2)'; g.lineWidth = 1;
   g.beginPath(); g.moveTo(0, cy); g.lineTo(W, cy);
   for (let k = 1; k < 8; k++) { g.moveTo(W * k / 8, 0); g.lineTo(W * k / 8, H); }
   g.stroke();
   g.beginPath();
   for (let i = 0; i < N; i++) { const x = W * i / (N - 1), y = cy - buf[s0 + i] * sc; if (i) g.lineTo(x, y); else g.moveTo(x, y); }
-  g.strokeStyle = '#7dff8f'; g.lineWidth = 1.3; g.shadowColor = 'rgba(100,255,130,0.8)'; g.shadowBlur = 4; g.stroke(); g.shadowBlur = 0;
+  g.strokeStyle = '#2f6b3f'; g.lineWidth = 1.3; g.stroke();
   $('wave-span').textContent = (1000 * N / r).toFixed(0) + ' ms across';
   $('wave-pk').textContent = 'peak ±' + pk;
 }
+// Simulated time against wall time, per modem (worker.js reports once a second).
+const rtMin = {}, rtNow = {};
+function showRealtime(role, m) {
+  if (m.speed === undefined) return;
+  if (m.wall < 2) { delete rtMin[role]; } else rtMin[role] = Math.min(rtMin[role] === undefined ? Infinity : rtMin[role], m.speed);
+  rtNow[role] = m.speed;
+  const set = (k, t) => { const el = $('rt-' + role + '-' + k); if (el) el.textContent = t; };
+  set('now', m.speed.toFixed(2) + 'x');
+  set('min', rtMin[role] === undefined ? '-' : rtMin[role].toFixed(2) + 'x');
+  set('head', m.headroom ? m.headroom.toFixed(2) + 'x' : '-');
+  set('worst', m.worst ? m.worst.toFixed(2) : '-');
+  const v = Object.values(rtNow);
+  const big = $('rt-ratio');
+  big.textContent = Math.min(...v).toFixed(2) + 'x';
+  big.style.color = Math.min(...v) < 0.98 ? '#c62828' : '';
+}
 function onMessage(role, m) {
   if (m.error) { statusEl.textContent = role + ' error: ' + m.error; return; }
+  if ('dmvals' in m) { const f = dmWait[role]; dmWait[role] = null; if (f) f(m.dmvals); return; }
+  if (m.paused || m.snapshot) { const f = snapWait[role]; snapWait[role] = null; if (f) f(m.snapshot || m); return; }
   if (m.scope) { drawScope(role, m.scope); return; }
+  if (m.ringState !== undefined) { onRingState(!!m.ringState); return; }
   if (m.latch !== undefined) {
     if (panels[role]) panels[role].setLatches(m.latch);
+    exchangeHook(role, m.latch[0] >= 0 && (m.latch[0] & 1) === 1);   // OH: the modem has the line off-hook
     setSpeaker(role, m.latch[1]);   // [0x10, 0x12, 0x14]: index 1 is 0x12
     return;
   }
@@ -621,42 +1108,36 @@ function onMessage(role, m) {
     const bps = dt > 0 ? (textIn[role] - textLast[role]) / dt : 0;
     textLast[role] = textIn[role]; textWall[role] = m.wall;
     stats[role] = { ...m, bps };
+    showRealtime(role, m);
     const st = stats[role];
-    $('s-' + role + '-sim').textContent = st.sim.toFixed(1) + ' s';
-    $('s-' + role + '-x').textContent = (st.sim / st.wall).toFixed(2) + '\u00d7';
-    $('s-' + role + '-bps').textContent = st.bps.toFixed(0) + ' B/s';
-    $('s-' + role + '-cpu').textContent = st.cpu.toFixed(0) + '%';
-    $('s-' + role + '-rx').textContent = st.rxMs.toFixed(0) + ' ms';
     return;
   }
   if (m.host !== undefined) {
     flashLamp(role, 'SD');
     flashLamp(role, 'RS');
-    termWrite(role, m.host);   // the commands the page sends (AT, ATDT ...), as typed
+    if (m.host) termWrite(role, m.host);   // the commands the page sends (AT, ATDT ...), as typed
     if (role === 'B' && /^ATD/i.test(m.host)) startDialing();   // A rings only after the digits are heard
     return;
   }
   simNow[role] = m.sim;
   playChunk(role, m.tx, m.rate);
   fftFeed(role, m.tx, m.rate);
+  vuFeed(role, m.tx);
   if (m.dte) {
     flashLamp(role, 'RD');
     dte[role] += m.dte;
-    const cm = /CONNECT\s+(\d+)/.exec(dte[role]);
-    if (cm) $('stag-' + role).textContent = cm[1] + ' BIT/S';
+    const cm = /CONNECT(?:\s+(\d+))?/.exec(dte[role]);   // at 300 bit/s the modem prints a plain CONNECT
+    if (cm) speedOf[role] = (cm[1] || '300') + ' BIT/S';
     if (lineState !== 'connected' && dte.A.includes('CONNECT') && dte.B.includes('CONNECT')) setLine('connected');
     textIn[role] += m.dte.length;
-    if (role === 'A' && !ataSent && dte.A.includes('RING')) {
-      ataSent = true; setLine('answering');
-      workers.A.postMessage({ cmd: 'send', text: 'ATA\r' });   // the ring stops when A goes off-hook (the office)
-    }
-    termWrite(role, m.dte);
+    if (role === 'A' && lineState === 'ringing') ringsHeard = (dte.A.slice(ringFrom).match(/RING/g) || []).length;   // the word can arrive split across messages
+    if (!speedRun) termWrite(role, m.dte);   // a speed test would only fill the terminals with its stream
   }
-  $('t-sim').textContent = Math.min(simNow.A, simNow.B).toFixed(2) + ' s';
 }
 
 // Hang up: send ATH to both modems, then stop both workers.
 $('hangup').addEventListener('click', () => {
+  if (document.body.dataset.mode === 'sip') return SIP.hangup();
   if (!workers.A || !workers.B) return;
   $('hangup').disabled = true;
   statusEl.textContent = 'Hanging up...';
@@ -664,40 +1145,22 @@ $('hangup').addEventListener('click', () => {
   setTimeout(() => {
     for (const role of ['A', 'B']) workers[role].postMessage({ stop: true });
     $('go').disabled = false; $('speed').disabled = false;   // power on again for another call
+    dialToneReset(true);   // both lines are on-hook again: dial tone is armed for the next call
     $('dial').disabled = true;
-    $('rand').disabled = true;
   }, 500);
-});
-
-// Throughput test: 32 kB of random printable text from the caller (B) to the answerer (A).
-// The text-in rate on A's row is the B-to-A rate.
-$('rand').addEventListener('click', () => {
-  if (!workers.B) return;
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 1; out.length < 32000; i++) {
-    let line = String(i).padStart(5, '0') + ' ';
-    for (let j = 0; j < 70; j++) line += chars[Math.floor(Math.random() * chars.length)];
-    out += line + '\r\n';
-  }
-  workers.B.postMessage({ cmd: 'send', text: out });
-  statusEl.textContent = 'Sent 32 kB random from B to A.';
 });
 
 // Start call: the caller (B) dials. Power on has already run the modems' setup.
 $('dial').addEventListener('click', () => {
+  if (document.body.dataset.mode === 'sip') return SIP.call();
   if (!workers.B) return;
   workers.B.postMessage({ cmd: 'send', text: 'ATDT5551234\r' });
-  setLine('dialing'); $('dialled-B').textContent = '555-1234';
+  setLine('dialing');
   $('dial').disabled = true;
   statusEl.textContent = 'Dialing. Waiting for RING.';
 });
 
 function finish() {
-  const conn = dte.A.includes('CONNECT') && dte.B.includes('CONNECT');
-  $('t-connect').textContent = conn ? 'yes' : 'no';
-  $('t-msgs').textContent = 'to answerer: ' + (dte.A.includes('Hello world from courier') ? 'yes' : 'no') +
-                            ', to caller: ' + (dte.B.includes('Hello back from the answerer') ? 'yes' : 'no');
   statusEl.textContent = 'Done. Audio played live (left = caller, right = answerer).';
   setLine('off');
   $('go').disabled = false; $('speed').disabled = false;
@@ -705,37 +1168,409 @@ function finish() {
   $('hangup').disabled = true;
 }
 
-$('go').addEventListener('click', () => {
+$('go').addEventListener('click', () => { if (document.body.dataset.mode === 'sip' && SIP.isOn()) return SIP.powerOff(); powerOn(null); });
+function powerOn(restore) {
+  if (document.body.dataset.mode === 'sip') return SIP.powerOn();   // SIP mode: one modem, see sipline.js
+  if (!fwBytes) { statusEl.textContent = 'Load the firmware first.'; return; }
   for (const w of Object.values(workers)) w.terminate();
+  autoSaved = !!restore;   // a call restored from a snapshot is not saved again
+  dialToneReset(!restore);   // a restored call is already past dial tone
   workers = {}; rec = { A: [], B: [] }; dte = { A: '', B: '' }; doneCount = 0; sent = false;
   textIn.A = textIn.B = textLast.A = textLast.B = textWall.A = textWall.B = 0;
+  ringsHeard = 0; clearTimeout(answerTimer); toneAudio('ringback', 'B', false);
   simNow = { A: 0, B: 0 }; stopping = false; ataSent = false; logText.A = ['']; logText.B = ['']; logCol.A = 0; logCol.B = 0; logEls.A.textContent = ''; logEls.B.textContent = '';
-  $('t-connect').textContent = '-'; $('t-msgs').textContent = '-'; $('t-sim').textContent = '-';
   audioInit();
-  setLine('standby'); $('dialled-A').textContent = ''; $('dialled-B').textContent = '';
-  for (const r of ['A', 'B']) { $('stag-' + r).textContent = 'IDLE'; scopePts[r].clear(); fftBuf[r] = []; }
+  setLine('standby'); dialledHeard = ''; lcd('');
+  for (const r of ['A', 'B']) { speedOf[r] = ''; $('stag-' + r).textContent = 'Modem ' + r; scopePts[r].clear(); fftBuf[r] = []; scopeRms[r].init = false; }
   instClear();
   $('go').disabled = true;
   $('dial').disabled = false;
-  $('rand').disabled = false;
   $('hangup').disabled = false;
   statusEl.textContent = 'Modems powered on. Press Start call to dial.';
   t0 = performance.now();
   // One channel per direction, straight between the two modem workers.
   const ab = new MessageChannel(), ba = new MessageChannel();   // A -> B, B -> A
   const ends = { A: { toPeer: ab.port1, fromPeer: ba.port2 }, B: { toPeer: ba.port1, fromPeer: ab.port2 } };
-  const scripts = setupScripts();
+  const scripts = restore ? { A: [], B: [] } : setupScripts();
   $('speed').disabled = true;   // the speed is set by the setup commands, so it can only change while powered off
   for (const role of ['A', 'B']) {
     const script = scripts[role];
-    const w = new Worker('worker.js');
+    const w = new Worker('worker.js?v=' + WORKER_BUILD);
     if (panels[role]) panels[role].setUart('TR', true);   // DTR asserted: the call is running
     w.onmessage = (e) => onMessage(role, e.data);
     w.onerror = (e) => { statusEl.textContent = role + ' worker error: ' + e.message; $('go').disabled = false; $('speed').disabled = false; };
     workers[role] = w;
-    w.postMessage({ init: true, role, script, lookaheadS: LOOKAHEAD_S, gain: GAIN, noise: Number($('noise').value) / 100, dialTone: false, toPeer: ends[role].toPeer, fromPeer: ends[role].fromPeer }, [ends[role].toPeer, ends[role].fromPeer]);
+    const rs = restore ? restore[role] : null;
+    w.postMessage({ init: true, flash: fwBytes, profile: fwProfile, scope: scopeWanted(), role, script, restore: rs, lookaheadS: LOOKAHEAD_S, gain: GAIN, noise: Number($('noise').value) / 100, line: lineParams(), dialTone: false, toPeer: ends[role].toPeer, fromPeer: ends[role].fromPeer },
+                  [ends[role].toPeer, ends[role].fromPeer, ...(rs ? [rs.mem] : [])]);
   }
+  if (restore) {
+    // The page's side of the call as it was: terminals, line state, speed tags.
+    const p = restore.page;
+    for (const r of ['A', 'B']) {
+      logText[r] = p.logText[r]; logCol[r] = p.logCol[r]; dte[r] = p.dte[r];
+      speedOf[r] = /BIT\/S/.test(p.stag[r]) ? p.stag[r] : '';
+      $('stag-' + r).textContent = 'Modem ' + r;
+      if (r === 'A') { dialledHeard = p.dialled.A; lcd(dialledHeard); }
+      redrawLog(r);
+    }
+    ataSent = true; $('speed').value = p.speed;
+    setLine('connected');
+    $('dial').disabled = true;
+    statusEl.textContent = 'Call restored from the snapshot (' + restore.label + ').';
+  }
+  refreshSnapUi();
+}
+
+// ---- Call snapshot: both modems' whole state, kept in this browser (IndexedDB), so a call can be resumed at once ----
+const waitFor = (role) => new Promise((res) => { snapWait[role] = res; });
+function idb() { return new Promise((res, rej) => { const q = indexedDB.open('courier-modem', 1); q.onupgradeneeded = () => q.result.createObjectStore('snap'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function idbPut(v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('snap', 'readwrite'); t.objectStore('snap').put(v, SNAP_KEY); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+async function idbGet() { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction('snap').objectStore('snap').get(SNAP_KEY); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function viaStream(buf, ts) { return new Response(new Blob([buf]).stream().pipeThrough(ts)).arrayBuffer(); }
+// A step that does not finish says which one it was, instead of leaving the status line stuck.
+const step = (name, p, ms = 20000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('stuck at: ' + name)), ms))]);
+const gz = (buf) => (typeof CompressionStream === 'function' ? viaStream(buf, new CompressionStream('gzip')) : Promise.resolve(buf));
+const gunz = (buf, packed) => (packed ? viaStream(buf, new DecompressionStream('gzip')) : Promise.resolve(buf));
+fetch('modem.wasm?v=' + WORKER_BUILD).then((r) => r.arrayBuffer()).then(async (b) => {   // which build a snapshot belongs to
+  let h = '';
+  try { h = [...new Uint8Array(await crypto.subtle.digest('SHA-1', b))].slice(0, 8).map((x) => x.toString(16).padStart(2, '0')).join(''); } catch (e) { /* insecure context */ }
+  buildVer = b.byteLength + ':' + h;
+}).catch(() => {}).finally(() => idbGet().then((r) => { snapInfo = r || null; refreshSnapUi(); }).catch((e) => { snapErr = String(e && e.message || e); refreshSnapUi(); }));
+
+
+// ---- Firmware: supplied by the user, decoded and kept in this browser; the page and its files contain none ----
+const FW_URL = '';   // optionally a default URL of the XMD or a zip holding it (needs CORS on that host)
+// SHA-256 of the decoded 524288-byte flash image -> the emulator profile (its CPU clock) for that firmware
+const FW_PROFILES = {
+  'f24633ab12c21c3cef93c0f6c0bb8150021b0056953cb5517a95932abc673c52': 'sv25',
+  'f114c152ebce84db6cbe890222e27dee69b3fdf8c1fe4f3ea3a4054d7c908e52': 'sv20',
+};
+let fwProfile = 'sv25';
+let fwEmbedded = false;   // a local build with the firmware baked in: it wins over a stored or dev image
+async function fwProfileOf(flash) {   // the profile of a decoded image, or null when it is not a known firmware
+  if (!crypto.subtle) return new TextDecoder().decode(flash.subarray(8, 17)).startsWith('Copyright') ? 'sv25' : null;
+  const h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', flash))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return FW_PROFILES[h] || null;
+}
+async function fwIdentify() { if (fwBytes) fwProfile = (await fwProfileOf(fwBytes)) || 'sv25'; }
+let fwBytes = null;
+async function unzipFirst(buf) {   // the XMD (or decoded flash) inside a zip: stored or deflate entries
+  const v = new DataView(buf), u = new Uint8Array(buf);
+  let e = buf.byteLength - 22;
+  while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('not a zip file');
+  let p = v.getUint32(e + 16, true);
+  for (let n = v.getUint16(e + 10, true); n > 0; n--) {
+    if (v.getUint32(p, true) !== 0x02014b50) break;
+    const method = v.getUint16(p + 10, true), csize = v.getUint32(p + 20, true), usize = v.getUint32(p + 24, true);
+    const nl = v.getUint16(p + 28, true), xl = v.getUint16(p + 30, true), cl = v.getUint16(p + 32, true), lo = v.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u.subarray(p + 46, p + 46 + nl));
+    p += 46 + nl + xl + cl;
+    if (usize !== 524416 && usize !== 524288 && !/\.xmd$/i.test(name)) continue;
+    const ds = lo + 30 + v.getUint16(lo + 26, true) + v.getUint16(lo + 28, true), raw = u.slice(ds, ds + csize);
+    if (method === 0) return raw.buffer;
+    if (method === 8) return viaStream(raw.buffer, new DecompressionStream('deflate-raw'));
+    throw new Error('unsupported zip compression ' + method);
+  }
+  throw new Error('no firmware file inside the zip');
+}
+async function fwDecode(buf) {   // XMD -> flash: 128-byte header, then blocks XORed with a rolling key (first 0x55, then the last decoded byte of the previous block)
+  if (new Uint8Array(buf, 0, 2).join() === '80,75') buf = await unzipFirst(buf);
+  const x = new Uint8Array(buf);
+  let flash;
+  if (x.length === 524288) flash = x.slice();
+  else if (x.length === 524416) {
+    flash = new Uint8Array(524288);
+    let key = 0x55;
+    for (let o = 0; o < flash.length; o += 128) { for (let i = 0; i < 128; i++) flash[o + i] = x[128 + o + i] ^ key; key = flash[o + 127]; }
+  } else throw new Error('unexpected file size ' + x.length + ' (an .XMD is 524416 bytes)');
+  if (!(await fwProfileOf(flash))) throw new Error('this is not a firmware this page was built for (SV25 or SV20)');
+  return flash;
+}
+const fwMsg = (t, err) => { $('fw-msg').textContent = t; $('fw-msg').className = 'fwmsg' + (err ? ' err' : ''); };
+function fwUi() {
+  const box = $('fw');
+  box.className = fwBytes ? 'fw done' : 'fw';
+  box.innerHTML = fwBytes ? 'Firmware loaded from your own file, kept in this browser. <button type="button" class="linkbtn" id="fw-forget">Forget it</button>' : box.innerHTML;
+  if (fwBytes) $('fw-forget').addEventListener('click', async () => { fwBytes = null; try { const db = await idb(); db.transaction('snap', 'readwrite').objectStore('snap').delete('firmware'); } catch (e) { /* */ } location.reload(); });
+  $('go').disabled = !fwBytes;
+  if (!fwBytes) statusEl.textContent = 'Load the firmware first (About tab).'; else if (statusEl.textContent.startsWith('Load the firmware')) statusEl.textContent = 'Idle.';
+}
+async function fwAccept(buf) {
+  try {
+    fwMsg('Decoding...');
+    const flash = await fwDecode(buf);
+    fwBytes = flash;
+    await fwIdentify();
+    try { const db = await idb(); db.transaction('snap', 'readwrite').objectStore('snap').put(flash, 'firmware'); } catch (e) { /* storage unavailable: kept for this visit only */ }
+    fwUi();
+  } catch (e) { fwMsg(String(e.message || e), true); }
+}
+if ($('fw-file')) {
+  $('fw-file').addEventListener('change', async (ev) => { const f = ev.target.files[0]; if (f) fwAccept(await f.arrayBuffer()); });
+  $('fw-fetch').addEventListener('click', async () => {
+    const u = $('fw-url').value.trim(); if (!u) return;
+    try { fwMsg('Fetching...'); fwAccept(await (await fetch(u)).arrayBuffer()); }
+    catch (e) { fwMsg('Could not fetch it (the host probably does not allow cross-origin requests). Download the file yourself and pick it above.', true); }
+  });
+  if (FW_URL) $('fw-url').value = FW_URL;
+  $('go').disabled = true; statusEl.textContent = 'Load the firmware first (About tab).';
+  // Development only: a decoded flash image placed next to this page as dev-flash.bin (git-ignored) is used when none is stored.
+  fetch('dev-flash.bin').then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b && !fwBytes && !fwEmbedded && b.byteLength === 524288) { fwBytes = new Uint8Array(b); fwIdentify(); fwUi(); } }).catch(() => {});
+  // A local build with the firmware baked in (build-wasm.sh EMBED_FW) leaves embedded.txt next to the page with the profile name: nothing to load.
+  fetch('embedded.txt').then((r) => (r.ok ? r.text() : null)).then((t) => { if (t) { fwEmbedded = true; fwBytes = new Uint8Array(0); fwProfile = t.trim() || 'sv25'; fwUi(); } }).catch(() => {});
+  idb().then((db) => { const q = db.transaction('snap').objectStore('snap').get('firmware'); q.onsuccess = () => { if (q.result && q.result.length === 524288 && !fwEmbedded) { fwBytes = q.result; fwIdentify(); fwUi(); } }; }).catch(() => {});
+}
+
+// ---- Tabs: About and Lab are two views of one page, so the modems keep running while About is shown ----
+function showTab(name) {
+  const mode = name === 'sip' ? 'sip' : 'lab';
+  if (name === 'lab' || name === 'sip') {
+    if (document.body.dataset.mode !== mode && Object.keys(workers).length) {   // the modems are on in the other mode: power them off first
+      statusEl.textContent = 'Power the modem off (' + (document.body.dataset.mode === 'sip' ? 'SIP' : 'Lab') + ' mode) before switching.';
+      return;
+    }
+    document.body.dataset.mode = mode;
+    $('mtitle-B').textContent = mode === 'sip' ? 'SIP trunk' : 'B \u00b7 caller';
+    $('sip-btn-off').disabled = !(window.SIP && SIP.isOn());
+  }
+  for (const t of ['about', 'lab', 'sip']) $('tabbtn-' + t).classList.toggle('on', t === name);
+  $('tab-about').hidden = name !== 'about'; $('tab-lab').hidden = name === 'about';
+  try { localStorage.setItem('tab', name); } catch (e) { /* private mode */ }
+  if (history.replaceState) history.replaceState(null, '', '#' + name);
+  if (name === 'lab' || name === 'sip') { layoutCables(); window.dispatchEvent(new Event('resize')); }
+}
+for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
+$('open-lab').addEventListener('click', () => showTab('lab'));
+{ let t = location.hash.slice(1); if (t !== 'about' && t !== 'lab' && t !== 'sip') { try { t = localStorage.getItem('tab'); } catch (e) { t = null; } } showTab(t === 'lab' || t === 'sip' ? t : 'about'); }
+
+
+// ---- Speed test: both modems send each other a known stream at once; the page times what arrives and checks every byte ----
+let speedRun = null, lastSpeedRun = null, speedBook = null;
+function speedRandom(seed, bytes) {   // random bytes 0..254 (the emulated DTE capture drops 0xFF), the same for a given seed so the receiver can be checked
+  let x = seed >>> 0; const out = new Uint8Array(bytes);
+  for (let i = 0; i < bytes; i++) { x = (x + 0x6D2B79F5) >>> 0; let t = x; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); out[i] = Math.floor(((t ^ (t >>> 14)) >>> 0) / 4294967296 * 255); }
+  return out;
+}
+async function speedText(bytes) {   // the opening of a public-domain book, from speedtext.txt next to the page
+  if (!speedBook) { const r = await fetch('speedtext.txt?v=' + WORKER_BUILD); if (!r.ok) throw new Error('speedtext.txt not found'); speedBook = new Uint8Array(await r.arrayBuffer()); }
+  return speedBook.slice(0, Math.min(bytes, speedBook.length));
+}
+function speedShow(r, got, total, rate, pct, bad) {
+  $('st-' + r + '-got').textContent = got === null ? '-' : (got / 1000).toFixed(1) + ' / ' + (total / 1000).toFixed(1) + ' kB';
+  $('st-' + r + '-rate').textContent = rate === null ? '-' : (rate / 1000).toFixed(2) + ' kbit/s';
+  $('st-' + r + '-pct').textContent = pct === null ? '-' : pct.toFixed(0) + ' %';
+  $('st-' + r + '-bad').textContent = bad === null ? '-' : String(bad);
+}
+function speedEnd(msg) {
+  const t = speedRun; if (t) clearInterval(t.timer);
+  speedRun = null; $('speed-rand').textContent = 'Speed: random'; $('speed-text').textContent = 'Speed: text';
+  statusEl.textContent = msg;
+}
+function speedStep() {
+  const t = speedRun; if (!t) return;
+  lastSpeedRun = t;
+  // The emulated serial port has no flow control, so a modem fed faster than it can send loses the overflow. Keep only a window of bytes in flight:
+  // top a sender up whenever fewer than `flight` of its bytes have not yet reached the other side.
+  for (const [snd, rcv] of [['A', 'B'], ['B', 'A']]) {
+    let inflight = t.sent[snd] - (dte[rcv].length - t.len0[rcv]);
+    while (t.sent[snd] < t.data[snd].length && inflight < t.flight) {
+      const n = Math.min(512, t.data[snd].length - t.sent[snd]);
+      workers[snd].postMessage({ cmd: 'sendbytes', bytes: t.data[snd].slice(t.sent[snd], t.sent[snd] + n) });
+      t.sent[snd] += n; inflight += n;
+    }
+  }
+  let all = true;
+  const sample = { s: Math.max(simNow.A - t.sim0.A, simNow.B - t.sim0.B) };   // simulated seconds: the table's rate is per simulated second too
+  for (const r of ['A', 'B']) {
+    const exp = t.data[r === 'A' ? 'B' : 'A'], total = exp.length;   // what this side should receive is what the other one sends
+    const got = Math.min(dte[r].length - t.len0[r], total);
+    const dt = Math.max(simNow[r] - t.sim0[r], 0.05);
+    if (t.done[r] === null && dte[r].length - t.len0[r] >= total) t.done[r] = { dt };
+    const d = t.done[r], rate = got * 8 / (d ? d.dt : dt), pct = t.bps ? 100 * rate / t.bps : null;
+    if (!d) all = false;
+    let bad = null;
+    if (d) { bad = 0; const rec = dte[r]; for (let i = 0; i < total; i++) if (rec.charCodeAt(t.len0[r] + i) !== exp[i]) bad++; }
+    speedShow(r, got, total, rate, pct, bad);
+    // the rate over the last second or so, for the graph
+    t.win = t.win || { A: [], B: [] }; const ts = simNow[r] - t.sim0[r]; t.win[r].push([ts, got]); while (t.win[r].length > 2 && ts - t.win[r][1][0] > 1) t.win[r].shift();
+    const w0 = t.win[r][0], span = ts - w0[0];
+    sample[r] = span > 0.2 ? (got - w0[1]) * 8 / span / 1000 : 0;
+  }
+  t.hist = t.hist || []; t.hist.push(sample);
+  const timedOut = Math.max(simNow.A - t.sim0.A, simNow.B - t.sim0.B) > t.limit;
+  if (all) speedEnd('Speed test done.');
+  else if (lineState !== 'connected') speedEnd('Speed test stopped: the call ended.');
+  else if (timedOut) speedEnd('Speed test stopped: not everything arrived in time.');
+  else statusEl.textContent = 'Speed test running...';
+}
+async function speedStart(kind) {
+  if (speedRun) { speedEnd('Speed test stopped.'); return; }
+  if (lineState !== 'connected' || !workers.A || !workers.B) return;
+  const bps = parseInt(speedOf.B, 10) || 300;
+  let da, db;
+  try {
+    if (kind === 'text') { const n = Math.max(300, Math.min(30481, Math.round(bps * 1.2))); da = await speedText(n); db = da; }
+    else { const n = Math.max(300, Math.min(40000, Math.round(bps * 0.5))); da = speedRandom(0xA11CE, n); db = speedRandom(0xB0B, n); }
+  } catch (e) { statusEl.textContent = 'Speed test failed: ' + (e && e.message || e); return; }
+  const bytes = da.length;
+  speedRun = { t0: performance.now(), bps, limit: bytes * 8 / bps * 8 + 12, len0: { A: dte.A.length, B: dte.B.length }, sim0: { A: simNow.A, B: simNow.B },
+    data: { A: da, B: db }, done: { A: null, B: null }, sent: { A: 0, B: 0 }, win: null, flight: Math.max(512, Math.min(4096, Math.round(bps / 12))) };
+  $('st-kind').textContent = kind === 'text' ? 'text, both ways at once' : 'random bytes, both ways at once';
+  for (const r of ['A', 'B']) speedShow(r, 0, bytes, 0, 0, null);
+  (kind === 'text' ? $('speed-text') : $('speed-rand')).textContent = 'Stop test';
+  speedRun.timer = setInterval(speedStep, 100);
+  statusEl.textContent = 'Speed test running...';
+}
+$('speed-rand').addEventListener('click', () => speedStart('random'));
+$('speed-text').addEventListener('click', () => speedStart('text'));
+setInterval(() => { const off = !speedRun && lineState !== 'connected'; for (const id of ['speed-rand', 'speed-text']) $(id).disabled = off || (!!speedRun && $(id).textContent !== 'Stop test'); }, 400);
+
+function snapUsable() { return snapInfo && snapInfo.fmt === SNAP_FMT && snapInfo.ver === buildVer; }
+function refreshSnapUi() {
+  $('snap-save').disabled = snapBusy || lineState !== 'connected' || !workers.A || !workers.B;
+  const ok = snapUsable();
+  $('snap-load').disabled = snapBusy || !ok;
+  $('snap-down').disabled = snapBusy || !(snapInfo && snapInfo.fmt === SNAP_FMT);
+  $('snap-up').disabled = snapBusy;
+  $('snap-load').textContent = ok ? 'Load call \u00b7 ' + snapInfo.label : 'Load call';
+  $('snap-load').title = ok ? 'Resume the call saved ' + new Date(snapInfo.when).toLocaleString() + '.'
+    : snapInfo ? 'The saved snapshot is from another build of the modem; save a new one.'
+    : snapErr ? 'Cannot read saved snapshots in this browser: ' + snapErr
+    : 'Nothing saved yet in this browser for ' + location.origin + '.';
+  $('snap-load').title += ' (snapshot code r25)';
+}
+async function saveSnapshot(auto) {
+  if (snapBusy || lineState !== 'connected' || !workers.A || !workers.B) return;
+  snapBusy = true; refreshSnapUi();
+  const was = statusEl.textContent;
+  statusEl.textContent = 'Saving snapshot...';
+  try {
+    // Pause both modems, let the audio still on its way between them arrive, then copy both, then let them go on.
+    statusEl.textContent = 'Saving snapshot: pausing the modems...';
+    await step('pausing the modems (no answer from a worker)', Promise.all(['A', 'B'].map((r) => { const p = waitFor(r); workers[r].postMessage({ snap: 'pause' }); return p; })));
+    await new Promise((r) => setTimeout(r, 150));
+    statusEl.textContent = 'Saving snapshot: copying memory...';
+    const snaps = await step('copying the modems\' memory', Promise.all(['A', 'B'].map((r) => { const p = waitFor(r); workers[r].postMessage({ snap: 'take' }); return p; })));
+    for (const r of ['A', 'B']) workers[r].postMessage({ snap: 'resume' });
+    const rec = { fmt: SNAP_FMT, ver: buildVer, when: Date.now(), label: (speedOf.B || '').replace(' BIT/S', '') + ' bit/s',
+      page: { logText: logText, logCol: logCol, dte: { A: dte.A.slice(-20000), B: dte.B.slice(-20000) }, stag: { A: speedOf.A, B: speedOf.B },
+              dialled: { A: dialledHeard, B: '' }, speed: $('speed').value } };
+    statusEl.textContent = 'Saving snapshot: compressing...';
+    for (const [i, r] of ['A', 'B'].entries()) {
+      const { mem, ...rest } = snaps[i];
+      let packed = mem, zipped = false;
+      try { packed = await step('compressing', gz(mem)); zipped = typeof CompressionStream === 'function'; } catch (e) { packed = mem; }   // keep it uncompressed if that fails
+      rec[r] = { ...rest, mem: packed, packed: zipped };
+    }
+    statusEl.textContent = 'Saving snapshot: storing in the browser...';
+    await step('storing in the browser (IndexedDB)', idbPut(rec));
+    const back = await step('reading it back', idbGet());   // read it back, so a save that did not stick is reported now
+    if (!back) throw new Error('the browser did not keep it (storage blocked or private window?)');
+    snapInfo = rec;
+    statusEl.textContent = (auto ? 'Snapshot saved' : 'Snapshot saved') + ' (' + rec.label + '). Load call resumes it.';
+  } catch (e) {
+    for (const r of ['A', 'B']) if (workers[r]) workers[r].postMessage({ snap: 'resume' });
+    statusEl.textContent = 'Snapshot failed: ' + (e && e.message || e);
+  } finally { snapBusy = false; refreshSnapUi(); }
+}
+
+// ---- Snapshot files: the saved record as one binary file (a JSON header, then the raw buffers), and back ----
+const SNAP_MAGIC = 'MSNAP1\n';
+function snapPack(rec) {
+  const bufs = [], seen = (v) => { const u = v instanceof ArrayBuffer ? new Uint8Array(v) : new Uint8Array(v.buffer, v.byteOffset, v.byteLength); bufs.push(u); return bufs.length - 1; };
+  const walk = (v) => {
+    if (v instanceof ArrayBuffer) return { __bin: seen(v), t: 'ArrayBuffer' };
+    if (ArrayBuffer.isView(v)) return { __bin: seen(v), t: v.constructor.name };
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  const meta = walk(rec), head = new TextEncoder().encode(JSON.stringify({ meta, sizes: bufs.map((b) => b.length) }));
+  const out = new Uint8Array(SNAP_MAGIC.length + 4 + head.length + bufs.reduce((n, b) => n + b.length, 0));
+  out.set(new TextEncoder().encode(SNAP_MAGIC), 0);
+  new DataView(out.buffer).setUint32(SNAP_MAGIC.length, head.length, true);
+  out.set(head, SNAP_MAGIC.length + 4);
+  let o = SNAP_MAGIC.length + 4 + head.length; for (const b of bufs) { out.set(b, o); o += b.length; }
+  return out;
+}
+function snapUnpack(buf) {
+  const u = new Uint8Array(buf);
+  if (new TextDecoder().decode(u.subarray(0, SNAP_MAGIC.length)) !== SNAP_MAGIC) throw new Error('not a snapshot file');
+  const hl = new DataView(buf).getUint32(SNAP_MAGIC.length, true), head = JSON.parse(new TextDecoder().decode(u.subarray(SNAP_MAGIC.length + 4, SNAP_MAGIC.length + 4 + hl)));
+  let o = SNAP_MAGIC.length + 4 + hl; const parts = head.sizes.map((n) => { const a = u.slice(o, o + n); o += n; return a; });
+  const walk = (v) => {
+    if (v && typeof v === 'object' && '__bin' in v) { const a = parts[v.__bin]; return v.t === 'ArrayBuffer' ? a.buffer : new globalThis[v.t](a.buffer); }
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return walk(head.meta);
+}
+$('snap-down').addEventListener('click', async () => {
+  try {
+    const rec = await idbGet(); if (!rec) return;
+    const url = URL.createObjectURL(new Blob([snapPack(rec)], { type: 'application/octet-stream' })), a = document.createElement('a');
+    a.href = url; a.download = 'modem-call-' + (rec.label || 'snapshot').replace(/[^0-9a-z]+/gi, '-') + '.snap'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    statusEl.textContent = 'Snapshot downloaded. The file holds the modems\' memory, your firmware image included: keep it private.';
+  } catch (e) { statusEl.textContent = 'Download failed: ' + (e && e.message || e); }
 });
+$('snap-up').addEventListener('click', () => $('snap-file').click());
+$('snap-file').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = ''; if (!f) return;
+  try {
+    const rec = snapUnpack(await f.arrayBuffer());
+    if (rec.fmt !== SNAP_FMT) throw new Error('a snapshot of another format');
+    if (rec.ver !== buildVer) throw new Error('made by another build of the modem; save a new one with this build');
+    await idbPut(rec); snapInfo = rec; refreshSnapUi();
+    statusEl.textContent = 'Snapshot loaded from ' + f.name + ' (' + rec.label + '). Press Load call to resume it.';
+  } catch (e) { statusEl.textContent = 'Upload failed: ' + (e && e.message || e); }
+});
+async function loadSnapshot() {
+  if (snapBusy || !snapUsable()) return;
+  snapBusy = true; refreshSnapUi(); statusEl.textContent = 'Loading snapshot...';
+  try {
+    const rec = await idbGet();
+    const out = { label: rec.label, page: rec.page };
+    for (const r of ['A', 'B']) out[r] = { ...rec[r], mem: await gunz(rec[r].mem, rec[r].packed) };
+    powerOn(out);
+  } catch (e) { statusEl.textContent = 'Load failed: ' + (e && e.message || e); }
+  finally { snapBusy = false; refreshSnapUi(); }
+}
+
+// ---- Link readout: the DSP's own measurements, polled once a second while connected (cells found by tracing ATI11) ----
+const SYMBOL_RATES = [2400, 2743, 2800, 3000, 3200, 3429];
+const CARRIERS = [[1600, 1800], [1646, 1829], [1680, 1867], [1800, 2000], [1829, 1920], [1959, 1959]];   // V.34 low / high carrier per symbol rate (3200 high = 1920 and 3429 = 1959 checked against ATI11)
+const s16 = (v) => (v >= 32768 ? v - 65536 : v);
+// DM 0x0BE6 is the firmware's SNR measure; against ATI11 over a noise sweep, SNR dB = -0.00564 * s16(cell) - 69.8 (within about 0.75 dB).
+// 0x03DB: symbol rate index; 0x0387: carrier offset in ppm; 0x03BA: timing offset in ppm.
+
+const LINK_CELLS = [0x0BE6, 0x03DB, 0x0387, 0x03BA, 0x03FB, 0x087A, 0x0347];   // 0x03FB: 1 = high carrier; 0x087A / 0x0347: receive / transmit speed in units of 2400 bit/s
+const linkSnr = {};
+function showLink(role, v) {
+  const [be6, sym, car, tim, hi, rxs, txs] = v;
+  const kb = (n) => (n * 2.4).toFixed(1), snr = -0.00564 * s16(be6) - 69.8;
+  const spd = rxs > 0 && rxs < 20 && txs > 0 && txs < 20 ? kb(rxs) + ' / ' + kb(txs) : '-';
+  $('l-' + role + '-rxs').textContent = rxs > 0 && rxs < 20 ? kb(rxs) + ' kbit/s' : '-';
+  $('l-' + role + '-txs').textContent = txs > 0 && txs < 20 ? kb(txs) + ' kbit/s' : '-';
+  $('l-' + role + '-snr').textContent = snr.toFixed(1) + ' dB';
+  linkSnr[role] = snr.toFixed(1);
+  $('noise-snr').textContent = 'A ' + (linkSnr.A || '-') + ' \u00b7 B ' + (linkSnr.B || '-') + ' dB';
+  $('ts-' + role).textContent = 'connected at ' + (speedOf[role] || '').replace(' BIT/S', '') + ' bit/s' + (spd !== '-' ? ' \u00b7 now rx / tx ' + spd + ' kbit/s' : '');
+  $('l-' + role + '-sym').textContent = SYMBOL_RATES[sym] ? SYMBOL_RATES[sym] + ' baud' : '-';
+  $('l-' + role + '-fc').textContent = CARRIERS[sym] ? CARRIERS[sym][hi ? 1 : 0] + ' Hz' : '-';
+  $('l-' + role + '-car').textContent = s16(car) + ' ppm';
+  $('l-' + role + '-tim').textContent = s16(tim) + ' ppm';
+}
+setInterval(async () => {
+  if (lineState !== 'connected' || snapBusy) { for (const r of ['A', 'B']) for (const k of ['rxs', 'txs', 'snr', 'sym', 'fc', 'car', 'tim']) { const el = $('l-' + r + '-' + k); if (lineState !== 'connected' && el.textContent !== '-') el.textContent = '-'; } if (lineState !== 'connected') { $('ts-A').textContent = ''; $('ts-B').textContent = ''; $('noise-snr').textContent = '-'; linkSnr.A = linkSnr.B = ''; } return; }
+  for (const r of ['A', 'B']) if (workers[r]) { const v = await Promise.race([readDm(r, LINK_CELLS), new Promise((res) => setTimeout(() => res(null), 800))]); if (v) showLink(r, v); }
+}, 1000);
+$('snap-save').addEventListener('click', () => saveSnapshot(false));
+$('snap-load').addEventListener('click', loadSnapshot);
 </script>
+<script src="sipline.js?v=r60"></script>
 </body>
 </html>

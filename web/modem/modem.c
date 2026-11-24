@@ -33,6 +33,12 @@ void modem_send(const char *s)
     machine_send_str(M, s);
 }
 
+/* The same for raw bytes (NUL and values above 127 included). */
+void modem_send_bytes(const uint8_t *b, int n)
+{
+    machine_send(M, b, (size_t)n);
+}
+
 /* ---- Constellation scope --------------------------------------------------
  * Two cells of the DSP's data memory hold the point the data pump is working
  * on (found by tracing: DM 0x0224 and 0x0228 take one new value each symbol;
@@ -41,41 +47,51 @@ void modem_send(const char *s)
  * slices of about one codec sample and the pair is read after each slice;
  * every change goes into a small ring that the page drains. */
 #define SCOPE_MAX 4096
-static int scope_x = -1, scope_y = -1;
-static int16_t scope_pts[2 * SCOPE_MAX];
+#define SCOPE_PAIRS 2
+static int scope_a[2 * SCOPE_PAIRS] = { -1, -1, -1, -1 };   /* data-memory addresses: x, y of each pair */
+static int scope_on;
+static int16_t scope_pts[2 * SCOPE_PAIRS * SCOPE_MAX];   /* per point: x, y of each pair */
 static int scope_n;
-static uint16_t scope_lx, scope_ly;
+static uint16_t scope_last[2 * SCOPE_PAIRS];
 
-void modem_scope_set(int ax, int ay)
+/* Two pairs of cells, sampled together; a point is stored whenever any of them changed. */
+void modem_scope_set(int a0, int a1, int b0, int b1)
 {
+    int v[2 * SCOPE_PAIRS] = { a0, a1, b0, b1 };
     scope_n = 0;
-    if (ax < 0 || ay < 0 || ax >= 0xC00 || ay >= 0xC00) {   /* on-chip RAM only */
-        scope_x = scope_y = -1;
-        return;
+    scope_on = 1;
+    for (int i = 0; i < 2 * SCOPE_PAIRS; i++) {
+        if (v[i] < 0 || v[i] >= 0xC00)   /* on-chip RAM only */
+            scope_on = 0;
+        scope_a[i] = v[i];
     }
-    scope_x = ax;
-    scope_y = ay;
 }
 
 static void scope_sample(void)
 {
     const uint16_t *d = c5x_dmem(M->dsp);
-    uint16_t x = d[scope_x], y = d[scope_y];
-    if ((x != scope_lx || y != scope_ly) && scope_n < SCOPE_MAX) {
-        scope_pts[2 * scope_n] = (int16_t)x;
-        scope_pts[2 * scope_n + 1] = (int16_t)y;
+    uint16_t cur[2 * SCOPE_PAIRS];
+    int changed = 0;
+    for (int i = 0; i < 2 * SCOPE_PAIRS; i++) {
+        cur[i] = d[scope_a[i]];
+        if (cur[i] != scope_last[i])
+            changed = 1;
+    }
+    if (changed && scope_n < SCOPE_MAX) {
+        for (int i = 0; i < 2 * SCOPE_PAIRS; i++)
+            scope_pts[2 * SCOPE_PAIRS * scope_n + i] = (int16_t)cur[i];
         scope_n++;
     }
-    scope_lx = x;
-    scope_ly = y;
+    memcpy(scope_last, cur, sizeof cur);
 }
 
-/* Copy out up to `max` points (x, y pairs); returns how many. */
+/* Copy out up to `max` points (four values each); returns how many. */
 int modem_scope_pull(int16_t *out, int max)
 {
+    const int w = 2 * SCOPE_PAIRS;
     int n = scope_n < max ? scope_n : max;
-    memcpy(out, scope_pts, (size_t)n * 2 * sizeof *out);
-    memmove(scope_pts, scope_pts + 2 * n, (size_t)(scope_n - n) * 2 * sizeof *scope_pts);
+    memcpy(out, scope_pts, (size_t)n * w * sizeof *out);
+    memmove(scope_pts, scope_pts + w * n, (size_t)(scope_n - n) * w * sizeof *scope_pts);
     scope_n -= n;
     return n;
 }
@@ -83,7 +99,7 @@ int modem_scope_pull(int16_t *out, int max)
 /* Run the modem for `cycles` CPU cycles. Returns the machine status. */
 int modem_run(double cycles)
 {
-    if (scope_x < 0 || !M->dsp)
+    if (!scope_on || !M->dsp)
         return machine_run(M, (uint64_t)cycles);
     uint64_t left = (uint64_t)cycles;
     uint64_t slice = (uint64_t)((double)M->cpu_hz / (double)(M->rate > 0 ? M->rate : 7200) * 0.9);
@@ -174,4 +190,12 @@ int modem_port(int port)
     if (port < 0 || port > 0xFFFF)
         return -1;
     return M->ports_set[port] ? (int)(M->ports[port] & 0xFF) : -1;
+}
+
+/* One DSP data-memory word (on-chip cells; e.g. the link measurements the firmware reports in ATI11), or -1. */
+int modem_dm(int addr)
+{
+    if (!M->dsp || addr < 0 || addr > 0xFFFF)
+        return -1;
+    return c5x_dmem(M->dsp)[addr];
 }

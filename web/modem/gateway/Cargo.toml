@@ -1,0 +1,17 @@
+[package]
+name = "courier-gw"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of tools/cline/gateway.py (std only)"
+
+[lib]
+name = "courier_gw"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gateway"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
